@@ -5,6 +5,7 @@ import java.time.Duration;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -14,10 +15,10 @@ public class RestClientConfig {
     /**
      * Client for the in-house AI API.
      *
-     * The JDK HTTP client is used rather than the simple factory because it
-     * sends a buffered body with a Content-Length header; the simple factory
-     * streams the request chunked, which OpenAI-compatible servers and the
-     * proxies in front of them frequently reject.
+     * The request body is handed to RestClient as a Map and Jackson serialises
+     * it. Buffering that output is what lets the request go out with a
+     * Content-Length header instead of chunked, which is how the openai python
+     * SDK sends it; without the wrapper the two differ on that one header.
      *
      * Generation can take a while, so the read timeout follows
      * app.ai.timeout-seconds rather than the framework default.
@@ -33,7 +34,7 @@ public class RestClientConfig {
         factory.setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()));
 
         return RestClient.builder()
-                .requestFactory(factory)
+                .requestFactory(new BufferingClientHttpRequestFactory(factory))
                 .build();
     }
 }

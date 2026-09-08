@@ -103,23 +103,15 @@ public class MermaidAiService {
                     "AI API is not configured. Set app.ai.base-url in config/application-local.yml.");
         }
 
+        // Handed to RestClient as a Map: Jackson turns it into JSON and the
+        // Content-Type header is kept as set below.
         Map<String, Object> body = Map.of(
                 "model", properties.getModel(),
                 "prompt", prompt,
                 "max_tokens", properties.getMaxTokens());
 
-        // Serialised up front so the request carries a Content-Length header.
-        // Streaming the body would send it chunked, which OpenAI-compatible
-        // servers and the proxies in front of them often reject.
-        String payload;
-        try {
-            payload = objectMapper.writeValueAsString(body);
-        } catch (JsonProcessingException e) {
-            throw new AiServiceException("Could not build the AI request payload", e);
-        }
-
         String url = properties.normalizedBaseUrl() + "/completions";
-        log.debug("POST {} body={}", url, payload);
+        log.debug("POST {} body={}", url, describe(body));
 
         JsonNode response;
         try {
@@ -128,7 +120,7 @@ public class MermaidAiService {
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + properties.getApiKey())
-                    .body(payload)
+                    .body(body)
                     .retrieve()
                     .body(JsonNode.class);
         } catch (HttpStatusCodeException e) {
@@ -137,7 +129,7 @@ public class MermaidAiService {
             // instead of swallowing it, or there is nothing to debug from.
             String responseBody = e.getResponseBodyAsString();
             log.error("AI API {} for POST {}\n  request : {}\n  response: {}",
-                    e.getStatusCode(), url, payload, responseBody);
+                    e.getStatusCode(), url, describe(body), responseBody);
             throw new AiServiceException(
                     "AI API가 " + e.getStatusCode() + " 를 반환했습니다: "
                             + (responseBody.isBlank() ? "(응답 본문 없음)" : responseBody), e);
@@ -181,6 +173,15 @@ public class MermaidAiService {
                             + properties.normalizedBaseUrl() + "/completions is the right endpoint.");
         }
         return text;
+    }
+
+    /** Renders the request body for the log; never used to build the request. */
+    private String describe(Map<String, Object> body) {
+        try {
+            return objectMapper.writeValueAsString(body);
+        } catch (JsonProcessingException e) {
+            return body.toString();
+        }
     }
 
     private static String textOf(JsonNode node) {

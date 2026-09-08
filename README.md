@@ -221,8 +221,9 @@ Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증합니다. �
   로그에는 실제로 보낸 요청 본문도 함께 남습니다.
 - **AI 응답 정리** — 모델이 설명 문장이나 ```` ```mermaid ```` 코드 펜스를 붙여서 답해도 백엔드가 Mermaid 코드만 추출해 전달합니다.
   다이어그램이 아닌 응답이면 `502`로 처리합니다.
-- **AI 요청 본문** — 요청은 `Content-Length`를 붙여 한 번에 전송합니다. 스트리밍(chunked)으로 보내면
-  OpenAI 호환 서버나 앞단 프록시가 거부하는 경우가 있어 의도적으로 버퍼링합니다.
+- **AI 요청 본문** — `Map` 을 그대로 `RestClient` 에 넘겨 Jackson 이 JSON 으로 직렬화합니다.
+  `BufferingClientHttpRequestFactory` 로 감싸 두어 chunked 가 아니라 `Content-Length` 로 나가며,
+  이는 openai 파이썬 SDK 가 보내는 형태와 동일합니다.
 - **CORS** — 프론트엔드(5001)와 백엔드(5000)의 출처가 다르므로 `app.cors.allowed-origins`에 등록된 출처만 허용합니다.
   다른 호스트에서 접속한다면 이 값에 추가하세요.
 - **세션** — 로그인 토큰은 브라우저 `localStorage`에 저장하고 `Authorization` 헤더로 보냅니다.

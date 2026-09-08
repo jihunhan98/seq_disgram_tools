@@ -31,6 +31,7 @@ class MermaidAiServiceTest {
 
     private final AtomicReference<String> lastBody = new AtomicReference<>();
     private final AtomicReference<String> lastPath = new AtomicReference<>();
+    private final AtomicReference<String> lastContentType = new AtomicReference<>();
     private final AtomicReference<String> lastContentLength = new AtomicReference<>();
     private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
     private final AtomicReference<String> lastAccept = new AtomicReference<>();
@@ -46,6 +47,7 @@ class MermaidAiServiceTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/", exchange -> {
             lastPath.set(exchange.getRequestURI().getPath());
+            lastContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             lastContentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
             lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
             lastAccept.set(exchange.getRequestHeaders().getFirst("Accept"));
@@ -91,22 +93,28 @@ class MermaidAiServiceTest {
     }
 
     /**
-     * Regression guard: a streamed request body would be sent chunked with no
-     * Content-Length, which OpenAI-compatible servers and corporate proxies
-     * routinely reject.
+     * The body is handed over as a Map, so Jackson has to produce well-formed
+     * JSON and the JSON content type has to survive to the wire.
      */
     @Test
-    void sendsABufferedBodyWithContentLength() {
+    void sendsJsonWithTheHeadersThePythonSdkSends() throws Exception {
         responseContent.set("sequenceDiagram\n    A->>B: hi");
 
         service.generate("로그인 흐름");
 
-        assertThat(lastContentLength.get()).isNotNull();
-        assertThat(Integer.parseInt(lastContentLength.get()))
-                .isEqualTo(lastBody.get().getBytes(StandardCharsets.UTF_8).length);
-        assertThat(lastAuthorization.get()).isEqualTo("Bearer EMPTY");
-        // Same headers the python SDK sends.
+        assertThat(lastContentType.get()).contains("application/json");
         assertThat(lastAccept.get()).contains("application/json");
+        assertThat(lastAuthorization.get()).isEqualTo("Bearer EMPTY");
+        // Content-Length rather than chunked, matching the python SDK.
+        assertThat(lastContentLength.get()).isNotNull();
+
+        // Parses as JSON with exactly the three expected fields.
+        var parsed = new ObjectMapper().readTree(lastBody.get());
+        assertThat(parsed.get("model").asText()).isEqualTo("gpt-4");
+        assertThat(parsed.get("max_tokens").asInt()).isEqualTo(500);
+        assertThat(parsed.get("prompt").asText()).contains("로그인 흐름");
+        assertThat(parsed.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("model", "prompt", "max_tokens");
     }
 
     /**
