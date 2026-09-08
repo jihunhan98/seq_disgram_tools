@@ -30,21 +30,27 @@ class MermaidAiServiceTest {
     private MermaidAiService service;
 
     private final AtomicReference<String> lastBody = new AtomicReference<>();
+    private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastContentLength = new AtomicReference<>();
     private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
     private final AtomicReference<String> responseContent = new AtomicReference<>();
+    /** false = chat shape (choices[0].message.content) instead of the completions shape. */
+    private final AtomicReference<Boolean> answerInCompletionShape = new AtomicReference<>(true);
 
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/chat/completions", exchange -> {
+        server.createContext("/v1/", exchange -> {
+            lastPath.set(exchange.getRequestURI().getPath());
             lastContentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
             lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
             lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 
-            String body = new ObjectMapper().writeValueAsString(java.util.Map.of(
-                    "choices", java.util.List.of(java.util.Map.of(
-                            "message", java.util.Map.of("content", responseContent.get())))));
+            Object choice = answerInCompletionShape.get()
+                    ? java.util.Map.of("text", responseContent.get())
+                    : java.util.Map.of("message", java.util.Map.of("content", responseContent.get()));
+            String body = new ObjectMapper().writeValueAsString(
+                    java.util.Map.of("choices", java.util.List.of(choice)));
             byte[] payload = body.getBytes(StandardCharsets.UTF_8);
 
             exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -86,17 +92,45 @@ class MermaidAiServiceTest {
         assertThat(lastAuthorization.get()).isEqualTo("Bearer EMPTY");
     }
 
+    /**
+     * The in-house API serves the completions contract, so the request has to
+     * go to /completions with a single `prompt` string - the equivalent of
+     * client.completions.create(model=..., prompt=..., max_tokens=...).
+     */
     @Test
-    void postsTheModelAndBothMessages() {
+    void postsAPromptToTheCompletionsEndpoint() {
         responseContent.set("sequenceDiagram\n    A->>B: hi");
 
         service.generate("로그인 흐름을 그려줘");
 
+        assertThat(lastPath.get()).isEqualTo("/v1/completions");
         assertThat(lastBody.get())
                 .contains("\"model\":\"gpt-4\"")
-                .contains("\"role\":\"system\"")
-                .contains("\"role\":\"user\"")
-                .contains("로그인 흐름을 그려줘");
+                .contains("\"prompt\"")
+                .contains("\"max_tokens\":2000")
+                .contains("로그인 흐름을 그려줘")
+                // No chat-shaped message array.
+                .doesNotContain("\"messages\"");
+    }
+
+    /**
+     * Regression guard for "body가 비어있다": the completions contract returns
+     * choices[0].text, and reading only choices[0].message.content sees nothing.
+     */
+    @Test
+    void readsTheAnswerFromChoicesText() {
+        responseContent.set("sequenceDiagram\n    A->>B: 요청");
+
+        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: 요청");
+    }
+
+    /** A server that answers in the chat shape still works. */
+    @Test
+    void alsoReadsTheAnswerFromChoicesMessageContent() {
+        answerInCompletionShape.set(false);
+        responseContent.set("sequenceDiagram\n    A->>B: 요청");
+
+        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: 요청");
     }
 
     @Test

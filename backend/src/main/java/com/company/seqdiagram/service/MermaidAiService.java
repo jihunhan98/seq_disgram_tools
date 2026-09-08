@@ -1,6 +1,5 @@
 package com.company.seqdiagram.service;
 
-import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -17,19 +16,30 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Talks to the in-house Playground API, which exposes the OpenAI
- * /v1/chat/completions contract.
+ * Talks to the in-house Playground API through the OpenAI completions
+ * contract - POST /v1/completions with a single `prompt` string, the
+ * equivalent of the python SDK's
+ * {@code client.completions.create(model=..., prompt=..., max_tokens=...)}.
+ *
+ * The answer comes back as {@code choices[0].text}. (The chat contract puts it
+ * in {@code choices[0].message.content} instead, which is why a chat-shaped
+ * reader sees an empty body here.)
  */
 @Service
 public class MermaidAiService {
 
     private static final Logger log = LoggerFactory.getLogger(MermaidAiService.class);
 
-    private static final String SYSTEM_PROMPT = """
+    /**
+     * A completion model has no system role, so the rules are folded into the
+     * prompt itself and the text ends on a cue the model can only continue
+     * with the diagram.
+     */
+    private static final String RULES = """
             You are an expert software architect who writes Mermaid sequence diagrams.
 
             Rules you must always follow:
-            1. Reply with Mermaid source code ONLY. No prose, no explanation, no markdown fences.
+            1. Output Mermaid source code ONLY. No prose, no explanation, no markdown fences.
             2. The diagram must start with the line `sequenceDiagram`.
             3. Use `participant` (or `actor`) declarations for every party, in the order they
                first take part in the flow, and give each one a short readable alias.
@@ -37,7 +47,7 @@ public class MermaidAiService {
             5. Express conditional and repeated behaviour with `alt` / `else` / `opt` / `loop`
                / `par` blocks, and close every block with `end`.
             6. Add `Note over ...` only where it genuinely clarifies the flow.
-            7. Keep participant names and messages in the same language the user wrote in.
+            7. Keep participant names and messages in the same language the request was written in.
             8. The output must be valid Mermaid v11 syntax that renders without errors.
             """;
 
@@ -53,21 +63,25 @@ public class MermaidAiService {
 
     /** Builds a brand new diagram from a natural-language description. */
     public String generate(String requirement) {
-        String userPrompt = """
-                Draw a Mermaid sequence diagram for the following requirement.
+        String prompt = """
+                %s
+                Write a Mermaid sequence diagram for the following requirement.
 
                 Requirement:
                 %s
-                """.formatted(requirement.strip());
 
-        return complete(userPrompt);
+                Mermaid code:
+                """.formatted(RULES, requirement.strip());
+
+        return complete(prompt);
     }
 
     /** Rewrites an existing diagram according to a natural-language change request. */
     public String refine(String currentMermaid, String instruction) {
-        String userPrompt = """
+        String prompt = """
+                %s
                 Below is an existing Mermaid sequence diagram, followed by a change request.
-                Apply the change request and return the COMPLETE updated diagram.
+                Apply the change request and write out the COMPLETE updated diagram.
                 Preserve every part of the original that the change request does not touch.
 
                 Current diagram:
@@ -75,12 +89,14 @@ public class MermaidAiService {
 
                 Change request:
                 %s
-                """.formatted(currentMermaid.strip(), instruction.strip());
 
-        return complete(userPrompt);
+                Updated Mermaid code:
+                """.formatted(RULES, currentMermaid.strip(), instruction.strip());
+
+        return complete(prompt);
     }
 
-    private String complete(String userPrompt) {
+    private String complete(String prompt) {
         if (!properties.isConfigured()) {
             throw new AiServiceException(
                     "AI API is not configured. Set app.ai.base-url in config/application-local.yml.");
@@ -88,10 +104,9 @@ public class MermaidAiService {
 
         Map<String, Object> body = Map.of(
                 "model", properties.getModel(),
-                "temperature", properties.getTemperature(),
-                "messages", List.of(
-                        Map.of("role", "system", "content", SYSTEM_PROMPT),
-                        Map.of("role", "user", "content", userPrompt)));
+                "prompt", prompt,
+                "max_tokens", properties.getMaxTokens(),
+                "temperature", properties.getTemperature());
 
         // Serialised up front so the request carries a Content-Length header.
         // Streaming the body would send it chunked, which OpenAI-compatible
@@ -106,7 +121,7 @@ public class MermaidAiService {
         JsonNode response;
         try {
             response = restClient.post()
-                    .uri(properties.normalizedBaseUrl() + "/chat/completions")
+                    .uri(properties.normalizedBaseUrl() + "/completions")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + properties.getApiKey())
                     .body(payload)
@@ -129,16 +144,35 @@ public class MermaidAiService {
         return mermaid;
     }
 
+    /**
+     * Reads the generated text. `choices[0].text` is the completions shape;
+     * `choices[0].message.content` is accepted as well so that a server which
+     * answers in the chat shape still works.
+     */
     private String readContent(JsonNode response) {
         if (response == null) {
             throw new AiServiceException("The AI API returned an empty response.");
         }
 
-        JsonNode content = response.path("choices").path(0).path("message").path("content");
-        if (content.isMissingNode() || content.isNull() || content.asText().isBlank()) {
-            throw new AiServiceException("The AI API response contained no message content.");
+        JsonNode choice = response.path("choices").path(0);
+        String text = textOf(choice.path("text"));
+        if (text == null) {
+            text = textOf(choice.path("message").path("content"));
         }
 
-        return content.asText();
+        if (text == null) {
+            log.warn("AI response had no usable text. Body: {}", response);
+            throw new AiServiceException(
+                    "The AI API response contained no text. Check that "
+                            + properties.normalizedBaseUrl() + "/completions is the right endpoint.");
+        }
+        return text;
+    }
+
+    private static String textOf(JsonNode node) {
+        if (node.isMissingNode() || node.isNull() || !node.isTextual() || node.asText().isBlank()) {
+            return null;
+        }
+        return node.asText();
     }
 }

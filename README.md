@@ -54,7 +54,7 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 | 백엔드 | Spring Boot 3.5 / **JDK 21** / Spring JDBC / Oracle JDBC (ojdbc11) / 포트 **5000** |
 | 프론트엔드 | 빌드 도구 없는 순수 HTML·CSS·JavaScript / 포트 **5001** |
 | 다이어그램 렌더링 | mermaid v11 (`frontend/vendor/mermaid.min.js`에 포함 — 인터넷 없이 동작) |
-| AI | 사내 Playground API (OpenAI `/v1/chat/completions` 호환), 모델 `gpt-4` |
+| AI | 사내 Playground API (OpenAI **`/v1/completions`** 호환), 모델 `gpt-4` |
 
 ## 디렉터리 구조
 
@@ -106,9 +106,11 @@ app:
     base-url: http://<HOST>:<PORT>/v1              # 사내 Playground API, /v1 까지 포함
     api-key: EMPTY
     model: gpt-4
+    max-tokens: 2000                               # 다이어그램이 잘리면 늘리세요
 ```
 
 파일 대신 환경변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`)로 넘겨도 됩니다.
+`base-url` 뒤에 `/completions` 가 붙어 호출되므로 `/v1` 까지만 적어야 합니다.
 
 > 이 파일이 실수로 커밋되지 않는지는 `git check-ignore -v config/application-local.yml`로 확인할 수 있습니다.
 
@@ -197,11 +199,23 @@ cd backend && mvn test
 ```
 
 Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증합니다. 회원 간 격리(다른 회원의 다이어그램을
-조회·수정·삭제할 수 없음), 비밀번호 해시 저장, CORS 사전 요청(preflight) 통과, AI 클라이언트의
-`Content-Length` 전송과 응답 파싱까지 확인합니다.
+조회·수정·삭제할 수 없음), 비밀번호 해시 저장, CORS 사전 요청(preflight) 통과, 그리고 AI 클라이언트가
+`/completions` 로 `prompt` + `max_tokens` 를 `Content-Length` 와 함께 보내고 `choices[0].text` 를
+읽어오는지까지 실제 소켓으로 확인합니다.
 
 ## 참고 사항
 
+- **AI 호출 방식** — OpenAI의 **completions(Complete)** 방식을 사용합니다. 즉 `POST {base-url}/completions` 로
+  `{"model": "...", "prompt": "...", "max_tokens": ...}` 를 보내고 응답은 `choices[0].text` 에서 읽습니다.
+  python SDK 로 치면 아래와 같은 호출입니다.
+
+  ```python
+  client.completions.create(model="gpt-4", prompt="...", max_tokens=2000)
+  ```
+
+  chat 방식(`/chat/completions`)은 답이 `choices[0].message.content` 에 담기므로, 그쪽만 읽으면
+  본문이 비어 있는 것으로 보입니다. 서버가 chat 형태로 응답하는 경우에도 동작하도록 두 위치를 모두 확인합니다.
+  다이어그램이 길어 잘린다면 `app.ai.max-tokens`(기본 2000)를 올리세요.
 - **AI 응답 정리** — 모델이 설명 문장이나 ```` ```mermaid ```` 코드 펜스를 붙여서 답해도 백엔드가 Mermaid 코드만 추출해 전달합니다.
   다이어그램이 아닌 응답이면 `502`로 처리합니다.
 - **AI 요청 본문** — 요청은 `Content-Length`를 붙여 한 번에 전송합니다. 스트리밍(chunked)으로 보내면
