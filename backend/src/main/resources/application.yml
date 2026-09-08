@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# Committed configuration ONLY.
+# Every secret (Oracle DB credentials, in-house AI endpoint) is supplied by
+# config/application-local.yml, which is git-ignored.
+# See config/application-local.yml.example for the template.
+# ---------------------------------------------------------------------------
+server:
+  port: 5000
+  shutdown: graceful
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: seq-diagram-backend
+
+  # Loaded from the repository-root ./config directory. Both paths are tried so
+  # the app can be started either from the repository root or from ./backend.
+  config:
+    import:
+      - optional:file:./config/application-local.yml
+      - optional:file:../config/application-local.yml
+
+  datasource:
+    url: ${DB_URL:}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      pool-name: seq-diagram-pool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+      validation-timeout: 5000
+      connection-test-query: SELECT 1 FROM DUAL
+
+  mvc:
+    problemdetails:
+      enabled: false
+
+  jackson:
+    default-property-inclusion: non_null
+
+app:
+  # Origins allowed to call this API. The static frontend is served on :5001.
+  cors:
+    allowed-origins: http://localhost:5001,http://127.0.0.1:5001
+  db:
+    # Creates SEQ_DIAGRAM (+ its sequence) on startup when they do not exist.
+    auto-init: true
+  ai:
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:EMPTY}
+    model: ${AI_MODEL:gpt-4}
+    temperature: 0.2
+    timeout-seconds: 120
+
+logging:
+  level:
+    com.company.seqdiagram: INFO

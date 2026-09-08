@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Copy this file to config/application-local.yml and fill in the real values.
+#
+#     cp config/application-local.yml.example config/application-local.yml
+#
+# config/application-local.yml is listed in .gitignore and must never be
+# committed: it holds the Oracle credentials and the in-house AI endpoint.
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    # Oracle SID style URL:  jdbc:oracle:thin:@<host>:<port>:<sid>
+    # Oracle service-name style: jdbc:oracle:thin:@//<host>:<port>/<service>
+    url: jdbc:oracle:thin:@HOST:1521:SID
+    username: CHANGE_ME
+    password: CHANGE_ME
+
+app:
+  ai:
+    # OpenAI-compatible base URL of the in-house Playground API (must end in /v1)
+    base-url: http://HOST:PORT/v1
+    api-key: EMPTY
+    model: gpt-4

@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Secrets / local configuration  (DB credentials, in-house AI endpoint)
+# These must NEVER be committed. Use the *.example templates instead.
+# ---------------------------------------------------------------------------
+config/application-local.yml
+config/*.local.yml
+config/*.env
+**/application-local.yml
+**/application-local.properties
+**/application-secret*.yml
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Java / Maven
+# ---------------------------------------------------------------------------
+target/
+build/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.war
+*.log
+hs_err_pid*
+replay_pid*
+
+# ---------------------------------------------------------------------------
+# IDE
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+nbproject/
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Frontend static server scratch
+# ---------------------------------------------------------------------------
+frontend/server/*.class
+node_modules/
