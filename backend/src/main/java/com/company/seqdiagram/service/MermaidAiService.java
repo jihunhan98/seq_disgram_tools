@@ -105,8 +105,7 @@ public class MermaidAiService {
         Map<String, Object> body = Map.of(
                 "model", properties.getModel(),
                 "prompt", prompt,
-                "max_tokens", properties.getMaxTokens(),
-                "temperature", properties.getTemperature());
+                "max_tokens", properties.getMaxTokens());
 
         // Serialised up front so the request carries a Content-Length header.
         // Streaming the body would send it chunked, which OpenAI-compatible

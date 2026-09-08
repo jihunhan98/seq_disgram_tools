@@ -55,9 +55,8 @@ app:
     base-url: ${AI_BASE_URL:}
     api-key: ${AI_API_KEY:EMPTY}
     model: ${AI_MODEL:gpt-4}
-    # POST {base-url}/completions 로 prompt 를 보내는 방식(Complete)을 사용합니다.
+    # POST {base-url}/completions 로 model, prompt, max_tokens 만 보냅니다.
     max-tokens: 2000
-    temperature: 0.2
     timeout-seconds: 120
 
 logging:

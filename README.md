@@ -206,7 +206,7 @@ Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증합니다. �
 ## 참고 사항
 
 - **AI 호출 방식** — OpenAI의 **completions(Complete)** 방식을 사용합니다. 즉 `POST {base-url}/completions` 로
-  `{"model": "...", "prompt": "...", "max_tokens": ...}` 를 보내고 응답은 `choices[0].text` 에서 읽습니다.
+  `{"model": "...", "prompt": "...", "max_tokens": ...}` **이 세 개만** 보내고 응답은 `choices[0].text` 에서 읽습니다.
   python SDK 로 치면 아래와 같은 호출입니다.
 
   ```python

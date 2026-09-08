@@ -109,8 +109,10 @@ class MermaidAiServiceTest {
                 .contains("\"prompt\"")
                 .contains("\"max_tokens\":2000")
                 .contains("로그인 흐름을 그려줘")
-                // No chat-shaped message array.
-                .doesNotContain("\"messages\"");
+                // Only these three fields go on the wire: no chat-shaped
+                // message array, and nothing the caller did not ask for.
+                .doesNotContain("\"messages\"")
+                .doesNotContain("\"temperature\"");
     }
 
     /**

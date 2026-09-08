@@ -13,7 +13,6 @@ public class AiProperties {
     private String baseUrl = "";
     private String apiKey = "EMPTY";
     private String model = "gpt-4";
-    private double temperature = 0.2;
     /** Upper bound on the generated diagram; a long diagram needs room. */
     private int maxTokens = 2000;
     private int timeoutSeconds = 120;
@@ -53,14 +52,6 @@ public class AiProperties {
 
     public void setModel(String model) {
         this.model = model;
-    }
-
-    public double getTemperature() {
-        return temperature;
-    }
-
-    public void setTemperature(double temperature) {
-        this.temperature = temperature;
     }
 
     public int getMaxTokens() {
