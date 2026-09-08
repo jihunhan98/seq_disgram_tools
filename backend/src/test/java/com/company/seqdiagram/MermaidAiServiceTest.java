@@ -33,9 +33,13 @@ class MermaidAiServiceTest {
     private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastContentLength = new AtomicReference<>();
     private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
+    private final AtomicReference<String> lastAccept = new AtomicReference<>();
     private final AtomicReference<String> responseContent = new AtomicReference<>();
     /** false = chat shape (choices[0].message.content) instead of the completions shape. */
     private final AtomicReference<Boolean> answerInCompletionShape = new AtomicReference<>(true);
+    /** When set, the stub answers with this status and body instead of a diagram. */
+    private final AtomicReference<int[]> errorStatus = new AtomicReference<>(null);
+    private final AtomicReference<String> errorBody = new AtomicReference<>("");
 
     @BeforeEach
     void startServer() throws IOException {
@@ -44,7 +48,18 @@ class MermaidAiServiceTest {
             lastPath.set(exchange.getRequestURI().getPath());
             lastContentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
             lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            lastAccept.set(exchange.getRequestHeaders().getFirst("Accept"));
             lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+
+            if (errorStatus.get() != null) {
+                byte[] error = errorBody.get().getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(errorStatus.get()[0], error.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(error);
+                }
+                return;
+            }
 
             Object choice = answerInCompletionShape.get()
                     ? java.util.Map.of("text", responseContent.get())
@@ -90,6 +105,8 @@ class MermaidAiServiceTest {
         assertThat(Integer.parseInt(lastContentLength.get()))
                 .isEqualTo(lastBody.get().getBytes(StandardCharsets.UTF_8).length);
         assertThat(lastAuthorization.get()).isEqualTo("Bearer EMPTY");
+        // Same headers the python SDK sends.
+        assertThat(lastAccept.get()).contains("application/json");
     }
 
     /**
@@ -107,7 +124,7 @@ class MermaidAiServiceTest {
         assertThat(lastBody.get())
                 .contains("\"model\":\"gpt-4\"")
                 .contains("\"prompt\"")
-                .contains("\"max_tokens\":2000")
+                .contains("\"max_tokens\":500")
                 .contains("로그인 흐름을 그려줘")
                 // Only these three fields go on the wire: no chat-shaped
                 // message array, and nothing the caller did not ask for.
@@ -152,6 +169,24 @@ class MermaidAiServiceTest {
         responseContent.set("설명입니다.\n\n```mermaid\nsequenceDiagram\n    A->>B: hi\n```\n");
 
         assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: hi");
+    }
+
+    /**
+     * A 400 carries the reason in its body ("model does not exist", "maximum
+     * context length is N tokens", ...). That text has to reach the caller,
+     * otherwise a rejected request is indistinguishable from any other failure.
+     */
+    @Test
+    void surfacesTheServersOwnExplanationForA400() {
+        errorStatus.set(new int[] { 400 });
+        errorBody.set("{\"object\":\"error\",\"message\":\"This model's maximum context "
+                + "length is 2048 tokens, however you requested 2600 tokens\",\"type\":"
+                + "\"invalid_request_error\"}");
+
+        assertThatThrownBy(() -> service.generate("로그인 흐름"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("400")
+                .hasMessageContaining("maximum context length is 2048 tokens");
     }
 
     @Test

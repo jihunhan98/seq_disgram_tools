@@ -20,5 +20,5 @@ app:
     base-url: http://HOST:PORT/v1
     api-key: EMPTY
     model: gpt-4
-    # 다이어그램이 길어 잘린다면 늘리세요.
-    max-tokens: 2000
+    # 다이어그램이 잘리면 늘리고, 컨텍스트 길이 초과로 400 이 나면 줄이세요.
+    max-tokens: 500

@@ -13,8 +13,7 @@ public class AiProperties {
     private String baseUrl = "";
     private String apiKey = "EMPTY";
     private String model = "gpt-4";
-    /** Upper bound on the generated diagram; a long diagram needs room. */
-    private int maxTokens = 2000;
+    private int maxTokens = 500;
     private int timeoutSeconds = 120;
 
     public boolean isConfigured() {

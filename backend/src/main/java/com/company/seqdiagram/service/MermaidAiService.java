@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -117,17 +118,31 @@ public class MermaidAiService {
             throw new AiServiceException("Could not build the AI request payload", e);
         }
 
+        String url = properties.normalizedBaseUrl() + "/completions";
+        log.debug("POST {} body={}", url, payload);
+
         JsonNode response;
         try {
             response = restClient.post()
-                    .uri(properties.normalizedBaseUrl() + "/completions")
+                    .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + properties.getApiKey())
                     .body(payload)
                     .retrieve()
                     .body(JsonNode.class);
+        } catch (HttpStatusCodeException e) {
+            // The server explains a 400 in its response body ("model does not
+            // exist", "maximum context length is N tokens", ...). Surface it
+            // instead of swallowing it, or there is nothing to debug from.
+            String responseBody = e.getResponseBodyAsString();
+            log.error("AI API {} for POST {}\n  request : {}\n  response: {}",
+                    e.getStatusCode(), url, payload, responseBody);
+            throw new AiServiceException(
+                    "AI API가 " + e.getStatusCode() + " 를 반환했습니다: "
+                            + (responseBody.isBlank() ? "(응답 본문 없음)" : responseBody), e);
         } catch (RestClientException e) {
-            log.error("Call to the AI API failed", e);
+            log.error("Call to the AI API failed: POST {}", url, e);
             throw new AiServiceException("Could not reach the AI API: " + e.getMessage(), e);
         }
 
