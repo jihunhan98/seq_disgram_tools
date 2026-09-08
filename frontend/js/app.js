@@ -1,57 +1,45 @@
 /**
  * Sequence Diagram Tool - application logic.
  *
- * Flow: natural language -> in-house AI API -> Mermaid code -> live preview,
- * with the code editable by hand and the result stored in Oracle.
+ * Three screens:
+ *   auth   - 로그인 / 회원가입
+ *   list   - 로그인한 회원의 다이어그램 목록. 새 다이어그램도 여기서 만든다.
+ *   editor - 목록에서 항목을 클릭했을 때 열리는 편집 화면.
  */
 (function () {
     'use strict';
 
     const PLACEHOLDER =
-        '<p class="placeholder">아직 다이어그램이 없습니다.<br>자연어로 요청하거나 Mermaid 코드를 직접 입력해 보세요.</p>';
+        '<p class="placeholder">아직 다이어그램이 없습니다.<br>자연어로 수정 요청을 하거나 Mermaid 코드를 직접 입력해 보세요.</p>';
 
-    const el = {
-        aiStatus: document.getElementById('ai-status'),
-        btnNew: document.getElementById('btn-new'),
-        btnReload: document.getElementById('btn-reload'),
-        search: document.getElementById('search'),
-        list: document.getElementById('diagram-list'),
-        listEmpty: document.getElementById('list-empty'),
-        title: document.getElementById('title'),
-        description: document.getElementById('description'),
-        docState: document.getElementById('doc-state'),
-        btnSave: document.getElementById('btn-save'),
-        btnDelete: document.getElementById('btn-delete'),
-        tabGenerate: document.getElementById('tab-generate'),
-        tabRefine: document.getElementById('tab-refine'),
-        promptHelp: document.getElementById('prompt-help'),
-        prompt: document.getElementById('prompt'),
-        aiHint: document.getElementById('ai-hint'),
-        btnRunAi: document.getElementById('btn-run-ai'),
-        preview: document.getElementById('preview'),
-        renderError: document.getElementById('render-error'),
-        editor: document.getElementById('editor'),
-        btnCopy: document.getElementById('btn-copy'),
-        btnPaste: document.getElementById('btn-paste'),
-        btnZoomIn: document.getElementById('btn-zoom-in'),
-        btnZoomOut: document.getElementById('btn-zoom-out'),
-        btnZoomReset: document.getElementById('btn-zoom-reset'),
-        zoomLevel: document.getElementById('zoom-level'),
-        btnDownloadSvg: document.getElementById('btn-download-svg'),
-        toast: document.getElementById('toast'),
-        confirm: document.getElementById('confirm'),
-        confirmTitle: document.getElementById('confirm-title'),
-        confirmMessage: document.getElementById('confirm-message'),
-        confirmOk: document.getElementById('confirm-ok'),
-        confirmCancel: document.getElementById('confirm-cancel')
-    };
+    const el = {};
+    [
+        'view-auth', 'view-list', 'view-editor', 'app-header',
+        'tab-login', 'tab-signup', 'form-login', 'form-signup',
+        'login-username', 'login-password', 'login-error',
+        'signup-username', 'signup-password', 'signup-password2',
+        'signup-name', 'signup-employee-no', 'signup-error',
+        'brand-home', 'ai-status', 'member-badge', 'btn-logout',
+        'list-count', 'search', 'btn-open-new', 'new-panel', 'btn-close-new',
+        'new-title', 'new-description', 'new-prompt', 'new-hint',
+        'btn-blank', 'btn-generate', 'diagram-grid', 'list-empty',
+        'btn-back', 'doc-state', 'btn-delete', 'btn-save', 'title', 'description',
+        'prompt', 'ai-hint', 'btn-refine',
+        'preview', 'render-error', 'editor',
+        'btn-copy', 'btn-paste', 'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-reset',
+        'zoom-level', 'btn-download-svg',
+        'toast', 'confirm', 'confirm-title', 'confirm-message', 'confirm-ok', 'confirm-cancel'
+    ].forEach((id) => {
+        el[id.replace(/-([a-z])/g, (m, c) => c.toUpperCase())] = document.getElementById(id);
+    });
 
     const state = {
-        currentId: null,
+        member: null,
+        view: 'auth',
         diagrams: [],
-        mode: 'generate',
-        zoom: 1,
+        currentId: null,
         lastPrompt: null,
+        zoom: 1,
         saved: { title: '', description: '', code: '' },
         renderToken: 0
     };
@@ -63,7 +51,7 @@
     /* Bootstrap                                                           */
     /* ------------------------------------------------------------------ */
 
-    function init() {
+    async function init() {
         mermaid.initialize({
             startOnLoad: false,
             theme: 'default',
@@ -72,19 +60,48 @@
         });
 
         wireEvents();
-        resetDocument();
+        Api.onUnauthorized = () => {
+            state.member = null;
+            showAuth('세션이 만료되었습니다. 다시 로그인해 주세요.');
+        };
+
         loadHealth();
-        loadList();
+        await restoreSession();
+    }
+
+    /** A stored token means the member can go straight back to their list. */
+    async function restoreSession() {
+        if (!Api.getToken()) {
+            showAuth();
+            return;
+        }
+        try {
+            state.member = await Api.me();
+            await enterApp();
+        } catch (error) {
+            showAuth();
+        }
     }
 
     function wireEvents() {
-        el.btnNew.addEventListener('click', onNew);
-        el.btnReload.addEventListener('click', () => loadList());
-        el.search.addEventListener('input', renderList);
+        el.tabLogin.addEventListener('click', () => setAuthTab('login'));
+        el.tabSignup.addEventListener('click', () => setAuthTab('signup'));
+        el.formLogin.addEventListener('submit', login);
+        el.formSignup.addEventListener('submit', signup);
 
-        el.tabGenerate.addEventListener('click', () => setMode('generate'));
-        el.tabRefine.addEventListener('click', () => setMode('refine'));
-        el.btnRunAi.addEventListener('click', runAi);
+        el.btnLogout.addEventListener('click', logout);
+        el.brandHome.addEventListener('click', () => goToList());
+
+        el.search.addEventListener('input', renderList);
+        el.btnOpenNew.addEventListener('click', () => toggleNewPanel(true));
+        el.btnCloseNew.addEventListener('click', () => toggleNewPanel(false));
+        el.btnGenerate.addEventListener('click', generateNew);
+        el.btnBlank.addEventListener('click', startBlank);
+
+        el.btnBack.addEventListener('click', () => goToList());
+        el.btnRefine.addEventListener('click', refine);
+        el.btnSave.addEventListener('click', save);
+        el.btnDelete.addEventListener('click', remove);
 
         el.editor.addEventListener('input', () => {
             scheduleRender();
@@ -96,24 +113,22 @@
 
         el.btnCopy.addEventListener('click', copyCode);
         el.btnPaste.addEventListener('click', pasteCode);
-        el.btnSave.addEventListener('click', save);
-        el.btnDelete.addEventListener('click', remove);
-
         el.btnZoomIn.addEventListener('click', () => setZoom(state.zoom + 0.1));
         el.btnZoomOut.addEventListener('click', () => setZoom(state.zoom - 0.1));
         el.btnZoomReset.addEventListener('click', () => setZoom(1));
         el.btnDownloadSvg.addEventListener('click', downloadSvg);
 
-        // Ctrl/Cmd+S saves, matching what people expect from an editor.
         document.addEventListener('keydown', (event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+            if (state.view === 'editor'
+                && (event.ctrlKey || event.metaKey)
+                && event.key.toLowerCase() === 's') {
                 event.preventDefault();
                 save();
             }
         });
 
         window.addEventListener('beforeunload', (event) => {
-            if (isDirty()) {
+            if (state.view === 'editor' && isDirty()) {
                 event.preventDefault();
                 event.returnValue = '';
             }
@@ -127,12 +142,15 @@
                 setStatus('ok', `AI 연결됨 · ${health.aiModel}`);
             } else {
                 setStatus('warn', 'AI 미설정');
-                el.aiHint.textContent =
+                const message =
                     'config/application-local.yml 에 app.ai.base-url 을 설정해야 AI 생성이 동작합니다.';
+                el.aiHint.textContent = message;
+                el.newHint.textContent = message;
             }
         } catch (error) {
             setStatus('warn', '백엔드 연결 실패');
             el.aiHint.textContent = error.message;
+            el.newHint.textContent = error.message;
         }
     }
 
@@ -142,7 +160,120 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /* Saved diagram list                                                  */
+    /* View switching                                                      */
+    /* ------------------------------------------------------------------ */
+
+    function showView(name) {
+        state.view = name;
+        el.viewAuth.hidden = name !== 'auth';
+        el.viewList.hidden = name !== 'list';
+        el.viewEditor.hidden = name !== 'editor';
+        el.appHeader.hidden = name === 'auth';
+        window.scrollTo(0, 0);
+    }
+
+    function showAuth(message) {
+        Api.setToken(null);
+        state.member = null;
+        state.diagrams = [];
+        showView('auth');
+        setAuthTab('login');
+        if (message) {
+            showFormError(el.loginError, message);
+        }
+    }
+
+    async function enterApp() {
+        el.memberBadge.textContent = `${state.member.name} · ${state.member.employeeNo}`;
+        await goToList();
+    }
+
+    async function goToList() {
+        if (state.view === 'editor' && isDirty()) {
+            const leave = await confirmDialog(
+                '저장하지 않은 변경사항이 있습니다', '변경사항을 버리고 목록으로 돌아갈까요?');
+            if (!leave) {
+                return;
+            }
+        }
+        showView('list');
+        await loadList();
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Auth                                                                */
+    /* ------------------------------------------------------------------ */
+
+    function setAuthTab(tab) {
+        const login = tab === 'login';
+        el.tabLogin.classList.toggle('is-active', login);
+        el.tabSignup.classList.toggle('is-active', !login);
+        el.formLogin.hidden = !login;
+        el.formSignup.hidden = login;
+        el.loginError.hidden = true;
+        el.signupError.hidden = true;
+    }
+
+    function showFormError(target, message) {
+        target.textContent = message;
+        target.hidden = false;
+    }
+
+    async function login(event) {
+        event.preventDefault();
+        el.loginError.hidden = true;
+
+        try {
+            const result = await Api.login({
+                username: el.loginUsername.value.trim(),
+                password: el.loginPassword.value
+            });
+            Api.setToken(result.token);
+            state.member = result.member;
+            el.loginPassword.value = '';
+            await enterApp();
+        } catch (error) {
+            showFormError(el.loginError, error.message);
+        }
+    }
+
+    async function signup(event) {
+        event.preventDefault();
+        el.signupError.hidden = true;
+
+        if (el.signupPassword.value !== el.signupPassword2.value) {
+            showFormError(el.signupError, '비밀번호가 서로 일치하지 않습니다.');
+            return;
+        }
+
+        try {
+            const result = await Api.signup({
+                username: el.signupUsername.value.trim(),
+                password: el.signupPassword.value,
+                name: el.signupName.value.trim(),
+                employeeNo: el.signupEmployeeNo.value.trim()
+            });
+            Api.setToken(result.token);
+            state.member = result.member;
+            el.formSignup.reset();
+            await enterApp();
+        } catch (error) {
+            showFormError(el.signupError, error.message);
+        }
+    }
+
+    async function logout() {
+        try {
+            await Api.logout();
+        } catch (error) {
+            // Even if the server call fails the local token must go.
+        }
+        el.formLogin.reset();
+        showAuth();
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* List screen                                                         */
     /* ------------------------------------------------------------------ */
 
     async function loadList() {
@@ -161,31 +292,40 @@
             item.title.toLowerCase().includes(keyword) ||
             (item.description || '').toLowerCase().includes(keyword));
 
-        el.list.replaceChildren();
+        el.diagramGrid.replaceChildren();
         items.forEach((item) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = item.id === state.currentId ? 'is-active' : '';
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'diagram-card';
 
             const title = document.createElement('span');
-            title.className = 'item-title';
+            title.className = 'card-title';
             title.textContent = item.title;
 
-            const meta = document.createElement('span');
-            meta.className = 'item-meta';
-            meta.textContent = formatDate(item.updatedAt);
+            const description = document.createElement('span');
+            description.className = 'card-description';
+            description.textContent = item.description || '설명 없음';
 
-            button.append(title, meta);
-            button.addEventListener('click', () => open(item.id));
+            const meta = document.createElement('span');
+            meta.className = 'card-meta';
+            meta.textContent = `수정 ${formatDate(item.updatedAt)}`;
+
+            card.append(title, description, meta);
+            card.addEventListener('click', () => openDiagram(item.id));
 
             const li = document.createElement('li');
-            li.appendChild(button);
-            el.list.appendChild(li);
+            li.appendChild(card);
+            el.diagramGrid.appendChild(li);
         });
 
-        el.listEmpty.hidden = items.length > 0;
+        el.listCount.textContent = state.diagrams.length
+            ? `${state.diagrams.length}건`
+            : '';
+
+        const empty = items.length === 0;
+        el.listEmpty.hidden = !empty;
         el.listEmpty.textContent = state.diagrams.length === 0
-            ? '저장된 다이어그램이 없습니다.'
+            ? '아직 저장된 다이어그램이 없습니다. “+ 새 다이어그램”으로 시작해 보세요.'
             : '검색 결과가 없습니다.';
     }
 
@@ -202,18 +342,81 @@
             + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 
-    /* ------------------------------------------------------------------ */
-    /* Document lifecycle                                                  */
-    /* ------------------------------------------------------------------ */
+    function toggleNewPanel(open) {
+        el.newPanel.hidden = !open;
+        if (open) {
+            el.newTitle.focus();
+        } else {
+            el.newTitle.value = '';
+            el.newDescription.value = '';
+            el.newPrompt.value = '';
+        }
+    }
 
-    async function open(id) {
-        if (id === state.currentId && !isDirty()) {
+    /** 목록 화면에서 자연어로 새 다이어그램을 만든다. */
+    async function generateNew() {
+        const title = el.newTitle.value.trim();
+        const requirement = el.newPrompt.value.trim();
+
+        if (!title) {
+            toast('제목을 입력하세요.', 'error');
+            el.newTitle.focus();
             return;
         }
-        if (isDirty() && !(await confirmDialog('저장하지 않은 변경사항이 있습니다', '변경사항을 버리고 다른 다이어그램을 열까요?'))) {
+        if (!requirement) {
+            toast('자연어 요청을 입력하세요.', 'error');
+            el.newPrompt.focus();
             return;
         }
 
+        setBusy(el.btnGenerate, true, 'AI로 생성');
+        try {
+            const result = await Api.generate(requirement);
+            openNewDocument(title, el.newDescription.value.trim(), result.mermaidCode, requirement);
+            toast('AI가 다이어그램을 생성했습니다. 저장하면 목록에 추가됩니다.', 'success');
+        } catch (error) {
+            toast(error.message, 'error');
+        } finally {
+            setBusy(el.btnGenerate, false, 'AI로 생성');
+        }
+    }
+
+    function startBlank() {
+        const title = el.newTitle.value.trim();
+        if (!title) {
+            toast('제목을 입력하세요.', 'error');
+            el.newTitle.focus();
+            return;
+        }
+        openNewDocument(
+            title,
+            el.newDescription.value.trim(),
+            'sequenceDiagram\n    participant User as 사용자\n    participant API as 서비스\n    User->>API: 요청\n    API-->>User: 응답',
+            null);
+    }
+
+    function openNewDocument(title, description, code, prompt) {
+        state.currentId = null;
+        state.lastPrompt = prompt;
+        el.title.value = title;
+        el.description.value = description;
+        el.editor.value = code;
+        el.prompt.value = '';
+
+        toggleNewPanel(false);
+        showView('editor');
+        // Unsaved on purpose, so the dirty marker shows until it is stored.
+        state.saved = { title: '', description: '', code: '' };
+        setZoom(1);
+        renderPreview();
+        updateDocState();
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Editor screen                                                       */
+    /* ------------------------------------------------------------------ */
+
+    async function openDiagram(id) {
         try {
             const diagram = await Api.getDiagram(id);
             state.currentId = diagram.id;
@@ -221,36 +424,16 @@
             el.title.value = diagram.title;
             el.description.value = diagram.description || '';
             el.editor.value = diagram.mermaidCode || '';
-            snapshot();
-            setMode('refine');
             el.prompt.value = '';
+
+            snapshot();
+            showView('editor');
+            setZoom(1);
             renderPreview();
-            renderList();
             updateDocState();
         } catch (error) {
             toast(error.message, 'error');
         }
-    }
-
-    async function onNew() {
-        if (isDirty() && !(await confirmDialog('저장하지 않은 변경사항이 있습니다', '변경사항을 버리고 새로 시작할까요?'))) {
-            return;
-        }
-        resetDocument();
-        renderList();
-    }
-
-    function resetDocument() {
-        state.currentId = null;
-        state.lastPrompt = null;
-        el.title.value = '';
-        el.description.value = '';
-        el.editor.value = '';
-        el.prompt.value = '';
-        setMode('generate');
-        snapshot();
-        renderPreview();
-        updateDocState();
     }
 
     function snapshot() {
@@ -268,78 +451,52 @@
     }
 
     function updateDocState() {
-        el.btnDelete.disabled = state.currentId === null;
+        const isNew = state.currentId === null;
+        el.btnDelete.hidden = isNew;
+        el.btnSave.textContent = isNew ? '저장' : '덮어쓰기 저장';
 
-        if (state.currentId === null) {
-            el.docState.textContent = isDirty()
-                ? '저장되지 않은 새 다이어그램입니다. (변경됨)'
-                : '저장되지 않은 새 다이어그램입니다.';
-            el.btnSave.textContent = '저장';
+        if (isNew) {
+            el.docState.textContent = '아직 저장되지 않은 새 다이어그램입니다.';
         } else {
             el.docState.textContent = isDirty()
                 ? `#${state.currentId} · 변경사항이 있습니다 (저장 시 덮어쓰기)`
                 : `#${state.currentId} · 저장된 내용과 동일합니다`;
-            el.btnSave.textContent = '덮어쓰기 저장';
         }
     }
 
-    /* ------------------------------------------------------------------ */
-    /* AI generate / refine                                                */
-    /* ------------------------------------------------------------------ */
-
-    function setMode(mode) {
-        state.mode = mode;
-        const generating = mode === 'generate';
-
-        el.tabGenerate.classList.toggle('is-active', generating);
-        el.tabRefine.classList.toggle('is-active', !generating);
-        el.btnRunAi.querySelector('.btn-label').textContent = generating ? 'AI로 생성' : 'AI로 수정 반영';
-        el.promptHelp.textContent = generating
-            ? '그리고 싶은 흐름을 문장으로 설명하면 AI가 Mermaid 시퀀스 다이어그램으로 만들어 줍니다.'
-            : '현재 Mermaid 코드에 반영할 수정사항을 문장으로 적어주세요. 기존 흐름은 유지된 채 요청한 부분만 바뀝니다.';
-        el.prompt.placeholder = generating
-            ? '예) 사용자가 로그인하면 API 게이트웨이가 인증 서버에 토큰을 요청하고, 성공하면 프로필 서비스에서 사용자 정보를 조회한다. 실패하면 401을 반환한다.'
-            : '예) 인증 실패 시 감사 로그를 남기는 단계를 추가하고, 토큰 재발급 흐름을 alt 블록으로 분리해줘.';
-    }
-
-    async function runAi() {
-        const prompt = el.prompt.value.trim();
-        if (!prompt) {
-            toast('자연어 요청을 입력하세요.', 'error');
+    /** 편집 화면의 자연어 요청은 항상 "현재 코드에 반영"이다. */
+    async function refine() {
+        const instruction = el.prompt.value.trim();
+        if (!instruction) {
+            toast('수정 요청을 입력하세요.', 'error');
             el.prompt.focus();
             return;
         }
-        if (state.mode === 'refine' && !el.editor.value.trim()) {
-            toast('수정할 Mermaid 코드가 없습니다. 먼저 생성하거나 코드를 입력하세요.', 'error');
+        if (!el.editor.value.trim()) {
+            toast('수정할 Mermaid 코드가 없습니다.', 'error');
             return;
         }
 
-        setBusy(true);
+        setBusy(el.btnRefine, true, 'AI로 수정 반영');
         try {
-            const result = state.mode === 'generate'
-                ? await Api.generate(prompt)
-                : await Api.refine(el.editor.value, prompt);
-
+            const result = await Api.refine(el.editor.value, instruction);
             el.editor.value = result.mermaidCode;
-            state.lastPrompt = prompt;
+            state.lastPrompt = instruction;
+            el.prompt.value = '';
             renderPreview();
             updateDocState();
-            setMode('refine');
-            el.prompt.value = '';
-            toast('AI가 다이어그램을 생성했습니다.', 'success');
+            toast('수정사항을 반영했습니다.', 'success');
         } catch (error) {
             toast(error.message, 'error');
         } finally {
-            setBusy(false);
+            setBusy(el.btnRefine, false, 'AI로 수정 반영');
         }
     }
 
-    function setBusy(busy) {
-        el.btnRunAi.disabled = busy;
-        el.btnRunAi.querySelector('.spinner').hidden = !busy;
-        el.btnRunAi.querySelector('.btn-label').textContent = busy
-            ? '생성 중…'
-            : (state.mode === 'generate' ? 'AI로 생성' : 'AI로 수정 반영');
+    function setBusy(button, busy, label) {
+        button.disabled = busy;
+        button.querySelector('.spinner').hidden = !busy;
+        button.querySelector('.btn-label').textContent = busy ? '생성 중…' : label;
     }
 
     /* ------------------------------------------------------------------ */
@@ -513,7 +670,6 @@
             state.currentId = saved.id;
             snapshot();
             updateDocState();
-            await loadList();
             toast(`저장했습니다. (#${saved.id})`, 'success');
         } catch (error) {
             toast(error.message, 'error');
@@ -533,8 +689,10 @@
 
         try {
             await Api.deleteDiagram(state.currentId);
+            state.currentId = null;
+            snapshot();
             toast('삭제했습니다.', 'success');
-            resetDocument();
+            showView('list');
             await loadList();
         } catch (error) {
             toast(error.message, 'error');

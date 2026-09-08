@@ -11,6 +11,10 @@ import com.company.seqdiagram.dto.DiagramSummary;
 import com.company.seqdiagram.exception.NotFoundException;
 import com.company.seqdiagram.repository.DiagramRepository;
 
+/**
+ * Every operation is scoped to the calling member, so one member can neither
+ * see nor touch another member's diagrams.
+ */
 @Service
 public class DiagramService {
 
@@ -21,48 +25,50 @@ public class DiagramService {
     }
 
     @Transactional(readOnly = true)
-    public List<DiagramSummary> list() {
-        return repository.findAllSummaries().stream()
+    public List<DiagramSummary> list(long memberId) {
+        return repository.findAllSummaries(memberId).stream()
                 .map(DiagramSummary::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public Diagram get(long id) {
-        return repository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Diagram " + id + " does not exist"));
+    public Diagram get(long id, long memberId) {
+        return repository.findById(id, memberId)
+                .orElseThrow(() -> new NotFoundException("다이어그램 " + id + " 을(를) 찾을 수 없습니다"));
     }
 
     @Transactional
-    public Diagram create(DiagramRequest request) {
+    public Diagram create(long memberId, DiagramRequest request) {
         long id = repository.insert(
+                memberId,
                 request.title().strip(),
                 trimToNull(request.description()),
                 request.mermaidCode(),
                 trimToNull(request.lastPrompt()));
-        return get(id);
+        return get(id, memberId);
     }
 
     /** Overwrites the row; the previous revision is deliberately not kept. */
     @Transactional
-    public Diagram update(long id, DiagramRequest request) {
+    public Diagram update(long id, long memberId, DiagramRequest request) {
         int updated = repository.update(
                 id,
+                memberId,
                 request.title().strip(),
                 trimToNull(request.description()),
                 request.mermaidCode(),
                 trimToNull(request.lastPrompt()));
 
         if (updated == 0) {
-            throw new NotFoundException("Diagram " + id + " does not exist");
+            throw new NotFoundException("다이어그램 " + id + " 을(를) 찾을 수 없습니다");
         }
-        return get(id);
+        return get(id, memberId);
     }
 
     @Transactional
-    public void delete(long id) {
-        if (repository.deleteById(id) == 0) {
-            throw new NotFoundException("Diagram " + id + " does not exist");
+    public void delete(long id, long memberId) {
+        if (repository.deleteById(id, memberId) == 0) {
+            throw new NotFoundException("다이어그램 " + id + " 을(를) 찾을 수 없습니다");
         }
     }
 

@@ -1,6 +1,6 @@
 # Sequence Diagram Tool
 
-자연어로 시퀀스 다이어그램을 만들고, Mermaid 코드로 다듬고, Oracle DB에 저장·조회·수정하는 사내용 도구입니다.
+자연어로 시퀀스 다이어그램을 만들고, Mermaid 코드로 다듬고, Oracle DB에 **회원별로** 저장·조회·수정하는 사내용 도구입니다.
 Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어그램을 빠르게 만들고 보관하는 것을 목적으로 합니다.
 
 ```
@@ -14,10 +14,30 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
                                      사내 AI API (Playground)
 ```
 
+## 화면 흐름
+
+```
+로그인 / 회원가입
+      │  아이디 · 비밀번호 · 이름 · 사번
+      ▼
+목록 화면  ─ 내가 만든 다이어그램만 보인다
+      │        └─ [+ 새 다이어그램] 제목 + 자연어 요청 → AI 생성 ─┐
+      │  카드 클릭                                                │
+      ▼                                                          ▼
+편집 화면  ─ 미리보기 + Mermaid 코드 편집 + 자연어로 수정 요청 ◀──┘
+```
+
+- **새로 만들기**는 목록 화면에서 합니다. 제목과 자연어 요청을 적고 `AI로 생성`을 누르면 편집 화면이 열립니다.
+  AI 없이 직접 쓰고 싶다면 `빈 코드로 시작`을 누릅니다.
+- **수정**은 목록에서 항목을 클릭해 편집 화면으로 들어가서 합니다. 편집 화면의 자연어 입력은 언제나
+  "현재 코드에 반영"이라 생성/수정 모드를 고를 필요가 없습니다.
+
 ## 주요 기능
 
 | 기능 | 설명 |
 |------|------|
+| 회원가입 · 로그인 | 아이디, 비밀번호, 이름, 사번으로 가입합니다. 비밀번호는 BCrypt로 해시해 보관합니다. |
+| 회원별 관리 | 다이어그램은 만든 회원에게 귀속되며, 다른 회원의 것은 조회·수정·삭제할 수 없습니다. |
 | 자연어 → 다이어그램 | 그리고 싶은 흐름을 문장으로 적으면 사내 AI API가 Mermaid 코드로 변환합니다. |
 | 실시간 미리보기 | Mermaid 코드를 수정하면 미리보기가 자동으로 다시 그려집니다. (디바운스 350ms) |
 | 코드 편집 · 복사 · 붙여넣기 | 하단 편집창에서 직접 수정할 수 있고, 복사/붙여넣기 버튼을 제공합니다. Tab 키로 들여쓰기가 됩니다. |
@@ -44,10 +64,10 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 │   ├── pom.xml
 │   └── src/main/
 │       ├── java/com/company/seqdiagram/
-│       │   ├── config/          AI 설정, CORS, HTTP 클라이언트, 스키마 초기화
-│       │   ├── controller/      /api/diagrams, /api/ai, /api/health
-│       │   ├── repository/      SEQ_DIAGRAM JDBC 접근
-│       │   └── service/         AI 호출, Mermaid 코드 추출
+│       │   ├── config/          AI 설정, CORS, 인증 인터셉터, 스키마 초기화
+│       │   ├── controller/      /api/auth, /api/diagrams, /api/ai, /api/health
+│       │   ├── repository/      MEMBER / MEMBER_SESSION / SEQ_DIAGRAM JDBC 접근
+│       │   └── service/         회원 인증, AI 호출, Mermaid 코드 추출
 │       └── resources/
 │           ├── application.yml           비밀정보 없음 (커밋 대상)
 │           └── db/oracle-schema.sql      Oracle DDL
@@ -118,33 +138,34 @@ java -jar target/seq-diagram-backend.jar
 
 ## 데이터베이스
 
-`app.db.auto-init: true`(기본값)이면 기동 시 `SEQ_DIAGRAM` 테이블과 시퀀스가 없을 때 자동으로 만듭니다.
+`app.db.auto-init: true`(기본값)이면 기동 시 `MEMBER`, `MEMBER_SESSION`, `SEQ_DIAGRAM` 과 시퀀스를 없을 때 자동으로 만듭니다.
 계정에 DDL 권한이 없으면 경고만 남기고 계속 실행되므로, 아래 DDL을 DBA에게 요청해 직접 적용하면 됩니다.
 (전체 내용은 `backend/src/main/resources/db/oracle-schema.sql`)
 
-```sql
-CREATE TABLE SEQ_DIAGRAM (
-    ID           NUMBER(19)          NOT NULL,
-    TITLE        VARCHAR2(200 CHAR)  NOT NULL,
-    DESCRIPTION  VARCHAR2(2000 CHAR),
-    MERMAID_CODE CLOB                NOT NULL,
-    LAST_PROMPT  VARCHAR2(4000 CHAR),
-    CREATED_AT   TIMESTAMP           DEFAULT SYSTIMESTAMP NOT NULL,
-    UPDATED_AT   TIMESTAMP           DEFAULT SYSTIMESTAMP NOT NULL,
-    CONSTRAINT PK_SEQ_DIAGRAM PRIMARY KEY (ID)
-);
-CREATE SEQUENCE SEQ_DIAGRAM_SEQ START WITH 1 INCREMENT BY 1 NOCACHE;
-CREATE INDEX IX_SEQ_DIAGRAM_UPDATED ON SEQ_DIAGRAM (UPDATED_AT DESC);
-```
+| 테이블 | 용도 |
+|--------|------|
+| `MEMBER` | 회원 (아이디, BCrypt 비밀번호 해시, 이름, 사번). 아이디와 사번은 유일합니다. |
+| `MEMBER_SESSION` | 로그인 세션. 토큰은 SHA-256 해시로만 저장하고 기본 12시간 후 만료됩니다. |
+| `SEQ_DIAGRAM` | 다이어그램. `MEMBER_ID` 로 주인을 가리킵니다. |
 
 Mermaid 코드는 `CLOB`이라 길이 제한이 사실상 없습니다. 수정 저장은 같은 행을 덮어쓰며 이전 버전은 남기지 않습니다.
 
+> **회원 기능 이전에 만든 `SEQ_DIAGRAM` 이 이미 있다면** `MEMBER_ID` 컬럼이 자동으로 추가되지만 기존 행은
+> 주인이 없어 아무에게도 보이지 않습니다. `oracle-schema.sql` 맨 아래의 이관 SQL로 주인을 지정하세요.
+
 ## API
+
+`/api/health`, `/api/auth/signup`, `/api/auth/login` 을 제외한 모든 `/api/**` 요청은
+`Authorization: Bearer <token>` 헤더가 필요합니다. 토큰은 로그인·회원가입 응답으로 받습니다.
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| `GET` | `/api/health` | 상태 및 AI 설정 여부 (`aiConfigured`, `aiModel`) |
-| `GET` | `/api/diagrams` | 목록 (Mermaid 코드는 제외한 요약) |
+| `GET` | `/api/health` | 상태 및 AI 설정 여부 (`aiConfigured`, `aiModel`) · 인증 불필요 |
+| `POST` | `/api/auth/signup` | `{username, password, name, employeeNo}` → `{token, member}` |
+| `POST` | `/api/auth/login` | `{username, password}` → `{token, member}` |
+| `POST` | `/api/auth/logout` | 현재 토큰 폐기 |
+| `GET` | `/api/auth/me` | 토큰으로 로그인한 회원 정보 |
+| `GET` | `/api/diagrams` | 내 다이어그램 목록 (Mermaid 코드는 제외한 요약) |
 | `GET` | `/api/diagrams/{id}` | 단건 조회 (Mermaid 코드 포함) |
 | `POST` | `/api/diagrams` | 신규 저장 |
 | `PUT` | `/api/diagrams/{id}` | 덮어쓰기 저장 |
@@ -153,11 +174,18 @@ Mermaid 코드는 `CLOB`이라 길이 제한이 사실상 없습니다. 수정 �
 | `POST` | `/api/ai/refine` | `{"mermaidCode": "...", "instruction": "..."}` → `{"mermaidCode": "..."}` |
 
 오류는 `{"status", "error", "message", "timestamp"}` 형태로 내려옵니다.
-AI 호출 실패는 `502`, DB 접속 실패는 `503`, 없는 다이어그램은 `404`입니다.
+로그인 필요/실패는 `401`, 아이디·사번 중복은 `409`, AI 호출 실패는 `502`, DB 접속 실패는 `503`,
+없는(또는 내 것이 아닌) 다이어그램은 `404`입니다.
 
 ```bash
-# 예시
+# 로그인해서 토큰 받기
+TOKEN=$(curl -s -X POST http://localhost:5000/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"username":"hong","password":"secret1234"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+# 그 토큰으로 다이어그램 생성 요청
 curl -X POST http://localhost:5000/api/ai/generate \
+     -H "Authorization: Bearer $TOKEN" \
      -H 'Content-Type: application/json' \
      -d '{"requirement":"사용자가 로그인하면 게이트웨이가 인증 서버에 토큰을 요청한다"}'
 ```
@@ -168,7 +196,8 @@ curl -X POST http://localhost:5000/api/ai/generate \
 cd backend && mvn test
 ```
 
-Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증하고, AI 클라이언트는 실제 소켓에 요청을 보내
+Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증합니다. 회원 간 격리(다른 회원의 다이어그램을
+조회·수정·삭제할 수 없음), 비밀번호 해시 저장, CORS 사전 요청(preflight) 통과, AI 클라이언트의
 `Content-Length` 전송과 응답 파싱까지 확인합니다.
 
 ## 참고 사항
@@ -179,5 +208,8 @@ Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증하고, AI �
   OpenAI 호환 서버나 앞단 프록시가 거부하는 경우가 있어 의도적으로 버퍼링합니다.
 - **CORS** — 프론트엔드(5001)와 백엔드(5000)의 출처가 다르므로 `app.cors.allowed-origins`에 등록된 출처만 허용합니다.
   다른 호스트에서 접속한다면 이 값에 추가하세요.
+- **세션** — 로그인 토큰은 브라우저 `localStorage`에 저장하고 `Authorization` 헤더로 보냅니다.
+  쿠키를 쓰지 않으므로 프론트엔드와 백엔드를 다른 호스트에 두어도 SameSite 문제가 없습니다.
+  유효 기간은 `app.auth.session-hours`(기본 12시간)로 조정합니다.
 - **오프라인 동작** — mermaid를 저장소에 포함했기 때문에 인터넷이 차단된 사내망에서도 그대로 동작합니다.
-- **저장하지 않은 변경** — 다른 다이어그램을 열거나 페이지를 벗어나려 하면 경고합니다. `Ctrl/Cmd + S`로 저장됩니다.
+- **저장하지 않은 변경** — 목록으로 돌아가거나 페이지를 벗어나려 하면 경고합니다. `Ctrl/Cmd + S`로 저장됩니다.

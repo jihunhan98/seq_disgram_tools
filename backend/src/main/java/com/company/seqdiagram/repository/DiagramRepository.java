@@ -50,22 +50,25 @@ public class DiagramRepository {
             toOffsetDateTime(rs.getTimestamp("CREATED_AT")),
             toOffsetDateTime(rs.getTimestamp("UPDATED_AT")));
 
-    public List<Diagram> findAllSummaries() {
+    /** Only the calling member's diagrams; ownership is enforced in SQL. */
+    public List<Diagram> findAllSummaries(long memberId) {
         return jdbcTemplate.query(
                 "SELECT ID, TITLE, DESCRIPTION, CREATED_AT, UPDATED_AT "
-                        + "FROM SEQ_DIAGRAM ORDER BY UPDATED_AT DESC, ID DESC",
-                summaryRowMapper);
+                        + "FROM SEQ_DIAGRAM WHERE MEMBER_ID = ? ORDER BY UPDATED_AT DESC, ID DESC",
+                summaryRowMapper,
+                memberId);
     }
 
-    public Optional<Diagram> findById(long id) {
+    public Optional<Diagram> findById(long id, long memberId) {
         List<Diagram> rows = jdbcTemplate.query(
-                "SELECT " + COLUMNS + " FROM SEQ_DIAGRAM WHERE ID = ?",
+                "SELECT " + COLUMNS + " FROM SEQ_DIAGRAM WHERE ID = ? AND MEMBER_ID = ?",
                 rowMapper,
-                id);
+                id, memberId);
         return rows.stream().findFirst();
     }
 
-    public long insert(String title, String description, String mermaidCode, String lastPrompt) {
+    public long insert(long memberId, String title, String description,
+                       String mermaidCode, String lastPrompt) {
         Long id = jdbcTemplate.queryForObject("SELECT SEQ_DIAGRAM_SEQ.NEXTVAL FROM DUAL", Long.class);
         if (id == null) {
             throw new IllegalStateException("SEQ_DIAGRAM_SEQ returned no value");
@@ -74,13 +77,15 @@ public class DiagramRepository {
         jdbcTemplate.update(connection -> {
             var ps = connection.prepareStatement(
                     "INSERT INTO SEQ_DIAGRAM "
-                            + "(ID, TITLE, DESCRIPTION, MERMAID_CODE, LAST_PROMPT, CREATED_AT, UPDATED_AT) "
-                            + "VALUES (?, ?, ?, ?, ?, SYSTIMESTAMP, SYSTIMESTAMP)");
+                            + "(ID, MEMBER_ID, TITLE, DESCRIPTION, MERMAID_CODE, LAST_PROMPT, "
+                            + "CREATED_AT, UPDATED_AT) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, SYSTIMESTAMP, SYSTIMESTAMP)");
             ps.setLong(1, id);
-            ps.setString(2, title);
-            ps.setString(3, description);
-            ps.setCharacterStream(4, new StringReader(mermaidCode), mermaidCode.length());
-            ps.setString(5, lastPrompt);
+            ps.setLong(2, memberId);
+            ps.setString(3, title);
+            ps.setString(4, description);
+            ps.setCharacterStream(5, new StringReader(mermaidCode), mermaidCode.length());
+            ps.setString(6, lastPrompt);
             return ps;
         });
 
@@ -88,22 +93,26 @@ public class DiagramRepository {
     }
 
     /** Overwrites the stored diagram; earlier content is not retained by design. */
-    public int update(long id, String title, String description, String mermaidCode, String lastPrompt) {
+    public int update(long id, long memberId, String title, String description,
+                      String mermaidCode, String lastPrompt) {
         return jdbcTemplate.update(connection -> {
             var ps = connection.prepareStatement(
                     "UPDATE SEQ_DIAGRAM SET TITLE = ?, DESCRIPTION = ?, MERMAID_CODE = ?, "
-                            + "LAST_PROMPT = ?, UPDATED_AT = SYSTIMESTAMP WHERE ID = ?");
+                            + "LAST_PROMPT = ?, UPDATED_AT = SYSTIMESTAMP "
+                            + "WHERE ID = ? AND MEMBER_ID = ?");
             ps.setString(1, title);
             ps.setString(2, description);
             ps.setCharacterStream(3, new StringReader(mermaidCode), mermaidCode.length());
             ps.setString(4, lastPrompt);
             ps.setLong(5, id);
+            ps.setLong(6, memberId);
             return ps;
         });
     }
 
-    public int deleteById(long id) {
-        return jdbcTemplate.update("DELETE FROM SEQ_DIAGRAM WHERE ID = ?", id);
+    public int deleteById(long id, long memberId) {
+        return jdbcTemplate.update(
+                "DELETE FROM SEQ_DIAGRAM WHERE ID = ? AND MEMBER_ID = ?", id, memberId);
     }
 
     private static OffsetDateTime toOffsetDateTime(Timestamp timestamp) {

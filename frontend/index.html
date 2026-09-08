@@ -7,120 +7,212 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-<header class="app-header">
-    <div class="brand">
+
+<!-- ====================================================================== -->
+<!-- 로그인 / 회원가입                                                       -->
+<!-- ====================================================================== -->
+<section id="view-auth" class="view auth-view" hidden>
+    <div class="auth-card">
+        <div class="auth-brand">
+            <span class="brand-mark">SD</span>
+            <div>
+                <h1>Sequence Diagram Tool</h1>
+                <p>자연어로 만들고, Mermaid로 다듬고, 회원별로 보관합니다.</p>
+            </div>
+        </div>
+
+        <div class="segmented auth-tabs" role="tablist">
+            <button id="tab-login" class="segment is-active" type="button" role="tab">로그인</button>
+            <button id="tab-signup" class="segment" type="button" role="tab">회원가입</button>
+        </div>
+
+        <form id="form-login" class="auth-form">
+            <label class="field">
+                <span class="field-label">아이디</span>
+                <input id="login-username" class="input" type="text" autocomplete="username" required>
+            </label>
+            <label class="field">
+                <span class="field-label">비밀번호</span>
+                <input id="login-password" class="input" type="password" autocomplete="current-password" required>
+            </label>
+            <p id="login-error" class="error-box" hidden></p>
+            <button class="btn btn-primary btn-block" type="submit">로그인</button>
+        </form>
+
+        <form id="form-signup" class="auth-form" hidden>
+            <label class="field">
+                <span class="field-label">아이디 <em>*</em></span>
+                <input id="signup-username" class="input" type="text" autocomplete="username"
+                       minlength="4" maxlength="50" placeholder="영문, 숫자, . _ - (4자 이상)" required>
+            </label>
+            <label class="field">
+                <span class="field-label">비밀번호 <em>*</em></span>
+                <input id="signup-password" class="input" type="password" autocomplete="new-password"
+                       minlength="8" maxlength="72" placeholder="8자 이상" required>
+            </label>
+            <label class="field">
+                <span class="field-label">비밀번호 확인 <em>*</em></span>
+                <input id="signup-password2" class="input" type="password" autocomplete="new-password" required>
+            </label>
+            <div class="field-row">
+                <label class="field field--grow">
+                    <span class="field-label">이름 <em>*</em></span>
+                    <input id="signup-name" class="input" type="text" maxlength="100" required>
+                </label>
+                <label class="field field--grow">
+                    <span class="field-label">사번 <em>*</em></span>
+                    <input id="signup-employee-no" class="input" type="text" maxlength="50" required>
+                </label>
+            </div>
+            <p id="signup-error" class="error-box" hidden></p>
+            <button class="btn btn-primary btn-block" type="submit">가입하고 시작하기</button>
+        </form>
+    </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 공통 헤더 (로그인 후)                                                   -->
+<!-- ====================================================================== -->
+<header id="app-header" class="app-header" hidden>
+    <button id="brand-home" class="brand brand--button" type="button" title="목록으로">
         <span class="brand-mark">SD</span>
         <div>
             <h1>Sequence Diagram Tool</h1>
             <p>자연어로 만들고, Mermaid로 다듬고, Oracle DB에 보관합니다.</p>
         </div>
-    </div>
+    </button>
     <div class="header-status">
         <span id="ai-status" class="status-pill status-pill--unknown">AI 상태 확인 중</span>
-        <button id="btn-new" class="btn btn-ghost" type="button">+ 새 다이어그램</button>
+        <span id="member-badge" class="member-badge"></span>
+        <button id="btn-logout" class="btn btn-ghost btn-sm" type="button">로그아웃</button>
     </div>
 </header>
 
-<main class="layout">
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Saved diagrams                                                      -->
-    <!-- ------------------------------------------------------------------ -->
-    <aside class="sidebar">
-        <div class="sidebar-head">
-            <h2>저장된 다이어그램</h2>
-            <button id="btn-reload" class="btn btn-icon" type="button" title="목록 새로고침">⟳</button>
+<!-- ====================================================================== -->
+<!-- 목록 화면                                                              -->
+<!-- ====================================================================== -->
+<section id="view-list" class="view list-view" hidden>
+    <div class="list-head">
+        <div>
+            <h2 class="section-title">내 시퀀스 다이어그램</h2>
+            <p id="list-count" class="muted small"></p>
         </div>
-        <input id="search" class="input" type="search" placeholder="제목으로 검색" autocomplete="off">
-        <ul id="diagram-list" class="diagram-list"></ul>
-        <p id="list-empty" class="muted small">저장된 다이어그램이 없습니다.</p>
-    </aside>
-
-    <section class="content">
-        <!-- -------------------------------------------------------------- -->
-        <!-- Metadata                                                        -->
-        <!-- -------------------------------------------------------------- -->
-        <div class="card">
-            <div class="meta-row">
-                <label class="field field--grow">
-                    <span class="field-label">제목 <em>*</em></span>
-                    <input id="title" class="input" type="text" maxlength="200"
-                           placeholder="예) 결제 승인 시퀀스">
-                </label>
-                <label class="field field--grow">
-                    <span class="field-label">설명</span>
-                    <input id="description" class="input" type="text" maxlength="2000"
-                           placeholder="예) Design Review 2026-09 회차 검토용">
-                </label>
-            </div>
-            <div class="meta-row meta-row--actions">
-                <span id="doc-state" class="muted small">저장되지 않은 새 다이어그램입니다.</span>
-                <div class="button-group">
-                    <button id="btn-delete" class="btn btn-danger" type="button" disabled>삭제</button>
-                    <button id="btn-save" class="btn btn-primary" type="button">저장</button>
-                </div>
-            </div>
+        <div class="button-group">
+            <input id="search" class="input input--search" type="search" placeholder="제목 · 설명 검색" autocomplete="off">
+            <button id="btn-open-new" class="btn btn-primary" type="button">+ 새 다이어그램</button>
         </div>
+    </div>
 
-        <!-- -------------------------------------------------------------- -->
-        <!-- Natural language -> Mermaid                                     -->
-        <!-- -------------------------------------------------------------- -->
-        <div class="card">
-            <div class="card-head">
-                <h2>자연어 요청</h2>
-                <div class="segmented" role="tablist">
-                    <button id="tab-generate" class="segment is-active" type="button" role="tab">새로 생성</button>
-                    <button id="tab-refine" class="segment" type="button" role="tab">수정 반영</button>
-                </div>
-            </div>
-            <p id="prompt-help" class="muted small">
-                그리고 싶은 흐름을 문장으로 설명하면 AI가 Mermaid 시퀀스 다이어그램으로 만들어 줍니다.
-            </p>
-            <textarea id="prompt" class="textarea textarea--prompt" rows="4"
+    <!-- 새 다이어그램은 이 목록 화면에서 만든다 -->
+    <div id="new-panel" class="card new-panel" hidden>
+        <div class="card-head">
+            <h2>새 다이어그램 만들기</h2>
+            <button id="btn-close-new" class="btn btn-icon" type="button" title="닫기">✕</button>
+        </div>
+        <div class="meta-row">
+            <label class="field field--grow">
+                <span class="field-label">제목 <em>*</em></span>
+                <input id="new-title" class="input" type="text" maxlength="200"
+                       placeholder="예) 결제 승인 시퀀스">
+            </label>
+            <label class="field field--grow">
+                <span class="field-label">설명</span>
+                <input id="new-description" class="input" type="text" maxlength="2000"
+                       placeholder="예) Design Review 2026-09 회차 검토용">
+            </label>
+        </div>
+        <label class="field">
+            <span class="field-label">자연어 요청</span>
+            <textarea id="new-prompt" class="textarea textarea--prompt" rows="4"
                       placeholder="예) 사용자가 로그인하면 API 게이트웨이가 인증 서버에 토큰을 요청하고, 성공하면 프로필 서비스에서 사용자 정보를 조회한다. 실패하면 401을 반환한다."></textarea>
-            <div class="card-actions">
-                <span id="ai-hint" class="muted small"></span>
-                <button id="btn-run-ai" class="btn btn-primary" type="button">
+        </label>
+        <div class="card-actions">
+            <span id="new-hint" class="muted small">그리고 싶은 흐름을 문장으로 설명하면 AI가 Mermaid 코드로 만들어 줍니다.</span>
+            <div class="button-group">
+                <button id="btn-blank" class="btn" type="button">빈 코드로 시작</button>
+                <button id="btn-generate" class="btn btn-primary" type="button">
                     <span class="btn-label">AI로 생성</span>
                     <span class="spinner" hidden></span>
                 </button>
             </div>
         </div>
+    </div>
 
-        <!-- -------------------------------------------------------------- -->
-        <!-- Preview                                                         -->
-        <!-- -------------------------------------------------------------- -->
-        <div class="card">
-            <div class="card-head">
-                <h2>미리보기</h2>
-                <div class="button-group">
-                    <button id="btn-zoom-out" class="btn btn-icon" type="button" title="축소">−</button>
-                    <span id="zoom-level" class="muted small">100%</span>
-                    <button id="btn-zoom-in" class="btn btn-icon" type="button" title="확대">+</button>
-                    <button id="btn-zoom-reset" class="btn btn-ghost btn-sm" type="button">100%</button>
-                    <button id="btn-download-svg" class="btn btn-ghost btn-sm" type="button">SVG 저장</button>
-                </div>
-            </div>
-            <div id="preview" class="preview"></div>
-            <p id="render-error" class="error-box" hidden></p>
-        </div>
+    <ul id="diagram-grid" class="diagram-grid"></ul>
+    <p id="list-empty" class="empty-state" hidden></p>
+</section>
 
-        <!-- -------------------------------------------------------------- -->
-        <!-- Editable Mermaid source                                         -->
-        <!-- -------------------------------------------------------------- -->
-        <div class="card">
-            <div class="card-head">
-                <h2>Mermaid 코드</h2>
-                <div class="button-group">
-                    <button id="btn-paste" class="btn btn-ghost btn-sm" type="button">붙여넣기</button>
-                    <button id="btn-copy" class="btn btn-ghost btn-sm" type="button">복사</button>
-                </div>
+<!-- ====================================================================== -->
+<!-- 편집 화면 (목록에서 항목을 클릭하면 열린다)                              -->
+<!-- ====================================================================== -->
+<section id="view-editor" class="view editor-view" hidden>
+    <div class="card">
+        <div class="editor-top">
+            <button id="btn-back" class="btn btn-ghost" type="button">← 목록</button>
+            <span id="doc-state" class="muted small"></span>
+            <div class="button-group">
+                <button id="btn-delete" class="btn btn-danger" type="button">삭제</button>
+                <button id="btn-save" class="btn btn-primary" type="button">저장</button>
             </div>
-            <textarea id="editor" class="textarea textarea--code" spellcheck="false"
-                      placeholder="sequenceDiagram&#10;    participant User&#10;    User->>API: 요청"></textarea>
-            <p class="muted small">코드를 수정하면 미리보기가 자동으로 갱신됩니다. (Tab 키로 들여쓰기)</p>
         </div>
-    </section>
-</main>
+        <div class="meta-row">
+            <label class="field field--grow">
+                <span class="field-label">제목 <em>*</em></span>
+                <input id="title" class="input" type="text" maxlength="200">
+            </label>
+            <label class="field field--grow">
+                <span class="field-label">설명</span>
+                <input id="description" class="input" type="text" maxlength="2000">
+            </label>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <h2>자연어로 수정 요청</h2>
+        </div>
+        <p class="muted small">
+            반영할 수정사항을 문장으로 적어주세요. 현재 Mermaid 코드를 기준으로 요청한 부분만 바뀝니다.
+        </p>
+        <textarea id="prompt" class="textarea textarea--prompt" rows="3"
+                  placeholder="예) 인증 실패 시 감사 로그를 남기는 단계를 추가하고, 토큰 재발급 흐름을 alt 블록으로 분리해줘."></textarea>
+        <div class="card-actions">
+            <span id="ai-hint" class="muted small"></span>
+            <button id="btn-refine" class="btn btn-primary" type="button">
+                <span class="btn-label">AI로 수정 반영</span>
+                <span class="spinner" hidden></span>
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <h2>미리보기</h2>
+            <div class="button-group">
+                <button id="btn-zoom-out" class="btn btn-icon" type="button" title="축소">−</button>
+                <span id="zoom-level" class="muted small">100%</span>
+                <button id="btn-zoom-in" class="btn btn-icon" type="button" title="확대">+</button>
+                <button id="btn-zoom-reset" class="btn btn-ghost btn-sm" type="button">100%</button>
+                <button id="btn-download-svg" class="btn btn-ghost btn-sm" type="button">SVG 저장</button>
+            </div>
+        </div>
+        <div id="preview" class="preview"></div>
+        <p id="render-error" class="error-box" hidden></p>
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <h2>Mermaid 코드</h2>
+            <div class="button-group">
+                <button id="btn-paste" class="btn btn-ghost btn-sm" type="button">붙여넣기</button>
+                <button id="btn-copy" class="btn btn-ghost btn-sm" type="button">복사</button>
+            </div>
+        </div>
+        <textarea id="editor" class="textarea textarea--code" spellcheck="false"
+                  placeholder="sequenceDiagram&#10;    participant User&#10;    User->>API: 요청"></textarea>
+        <p class="muted small">코드를 수정하면 미리보기가 자동으로 갱신됩니다. (Tab 키로 들여쓰기)</p>
+    </div>
+</section>
 
 <div id="toast" class="toast" hidden></div>
 

@@ -46,8 +46,11 @@ app:
   cors:
     allowed-origins: http://localhost:5001,http://127.0.0.1:5001
   db:
-    # Creates SEQ_DIAGRAM (+ its sequence) on startup when they do not exist.
+    # Creates MEMBER, MEMBER_SESSION and SEQ_DIAGRAM on startup when missing.
     auto-init: true
+  auth:
+    # How long a login token stays valid.
+    session-hours: 12
   ai:
     base-url: ${AI_BASE_URL:}
     api-key: ${AI_API_KEY:EMPTY}
