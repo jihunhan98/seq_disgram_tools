@@ -21,70 +21,64 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 
 /**
- * Exercises the AI client against a real socket, which is the only way to see
- * what actually goes onto the wire.
+ * Drives the client against a real socket standing in for the ai-model FastAPI
+ * server, which is the only way to see what actually goes onto the wire.
  */
 class MermaidAiServiceTest {
 
     private HttpServer server;
     private MermaidAiService service;
 
-    private final AtomicReference<String> lastBody = new AtomicReference<>();
     private final AtomicReference<String> lastPath = new AtomicReference<>();
+    private final AtomicReference<String> lastBody = new AtomicReference<>();
     private final AtomicReference<String> lastContentType = new AtomicReference<>();
-    private final AtomicReference<String> lastContentLength = new AtomicReference<>();
-    private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
-    private final AtomicReference<String> lastAccept = new AtomicReference<>();
-    private final AtomicReference<String> responseContent = new AtomicReference<>();
-    /** false = chat shape (choices[0].message.content) instead of the completions shape. */
-    private final AtomicReference<Boolean> answerInCompletionShape = new AtomicReference<>(true);
     /** When set, the stub answers with this status and body instead of a diagram. */
-    private final AtomicReference<int[]> errorStatus = new AtomicReference<>(null);
+    private final AtomicReference<Integer> errorStatus = new AtomicReference<>(null);
     private final AtomicReference<String> errorBody = new AtomicReference<>("");
+    private final AtomicReference<String> mermaidCode =
+            new AtomicReference<>("sequenceDiagram\n    A->>B: hi");
 
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/", exchange -> {
+        server.createContext("/", exchange -> {
             lastPath.set(exchange.getRequestURI().getPath());
             lastContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
-            lastContentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
-            lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
-            lastAccept.set(exchange.getRequestHeaders().getFirst("Accept"));
             lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 
-            if (errorStatus.get() != null) {
-                byte[] error = errorBody.get().getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
-                exchange.sendResponseHeaders(errorStatus.get()[0], error.length);
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(error);
-                }
-                return;
+            int status = 200;
+            String body;
+            if ("/health".equals(lastPath.get())) {
+                body = "{\"status\":\"ok\",\"llmApiConfigured\":true,\"llmApiModel\":\"gpt-4\"}";
+            } else if (errorStatus.get() != null) {
+                status = errorStatus.get();
+                body = errorBody.get();
+            } else {
+                body = new ObjectMapper().writeValueAsString(
+                        java.util.Map.of("mermaidCode", mermaidCode.get(), "elapsedMs", 12));
             }
 
-            Object choice = answerInCompletionShape.get()
-                    ? java.util.Map.of("text", responseContent.get())
-                    : java.util.Map.of("message", java.util.Map.of("content", responseContent.get()));
-            String body = new ObjectMapper().writeValueAsString(
-                    java.util.Map.of("choices", java.util.List.of(choice)));
             byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, payload.length);
+            exchange.sendResponseHeaders(status, payload.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(payload);
             }
         });
         server.start();
 
-        AiProperties properties = new AiProperties();
-        properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/");
-        properties.setApiKey("EMPTY");
-        properties.setModel("gpt-4");
-
         service = new MermaidAiService(
-                new RestClientConfig().aiRestClient(properties), properties, new ObjectMapper());
+                new RestClientConfig().aiRestClient(propertiesFor(port())), propertiesFor(port()));
+    }
+
+    private int port() {
+        return server.getAddress().getPort();
+    }
+
+    private AiProperties propertiesFor(int port) {
+        AiProperties properties = new AiProperties();
+        properties.setBaseUrl("http://127.0.0.1:" + port + "/");
+        return properties;
     }
 
     @AfterEach
@@ -92,125 +86,71 @@ class MermaidAiServiceTest {
         server.stop(0);
     }
 
-    /**
-     * The body is handed over as a Map, so Jackson has to produce well-formed
-     * JSON and the JSON content type has to survive to the wire.
-     */
     @Test
-    void sendsJsonWithTheHeadersThePythonSdkSends() throws Exception {
-        responseContent.set("sequenceDiagram\n    A->>B: hi");
-
-        service.generate("로그인 흐름");
-
-        assertThat(lastContentType.get()).contains("application/json");
-        assertThat(lastAccept.get()).contains("application/json");
-        assertThat(lastAuthorization.get()).isEqualTo("Bearer EMPTY");
-        // Content-Length rather than chunked, matching the python SDK.
-        assertThat(lastContentLength.get()).isNotNull();
-
-        // Parses as JSON with exactly the three expected fields.
-        var parsed = new ObjectMapper().readTree(lastBody.get());
-        assertThat(parsed.get("model").asText()).isEqualTo("gpt-4");
-        assertThat(parsed.get("max_tokens").asInt()).isEqualTo(500);
-        assertThat(parsed.get("prompt").asText()).contains("로그인 흐름");
-        assertThat(parsed.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("model", "prompt", "max_tokens");
-    }
-
-    /**
-     * The in-house API serves the completions contract, so the request has to
-     * go to /completions with a single `prompt` string - the equivalent of
-     * client.completions.create(model=..., prompt=..., max_tokens=...).
-     */
-    @Test
-    void postsAPromptToTheCompletionsEndpoint() {
-        responseContent.set("sequenceDiagram\n    A->>B: hi");
-
+    void postsTheRequirementToGenerate() throws Exception {
         service.generate("로그인 흐름을 그려줘");
 
-        assertThat(lastPath.get()).isEqualTo("/v1/completions");
-        assertThat(lastBody.get())
-                .contains("\"model\":\"gpt-4\"")
-                .contains("\"prompt\"")
-                .contains("\"max_tokens\":500")
-                .contains("로그인 흐름을 그려줘")
-                // Only these three fields go on the wire: no chat-shaped
-                // message array, and nothing the caller did not ask for.
-                .doesNotContain("\"messages\"")
-                .doesNotContain("\"temperature\"");
-    }
+        assertThat(lastPath.get()).isEqualTo("/generate");
+        assertThat(lastContentType.get()).contains("application/json");
 
-    /**
-     * Regression guard for "body가 비어있다": the completions contract returns
-     * choices[0].text, and reading only choices[0].message.content sees nothing.
-     */
-    @Test
-    void readsTheAnswerFromChoicesText() {
-        responseContent.set("sequenceDiagram\n    A->>B: 요청");
-
-        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: 요청");
-    }
-
-    /** A server that answers in the chat shape still works. */
-    @Test
-    void alsoReadsTheAnswerFromChoicesMessageContent() {
-        answerInCompletionShape.set(false);
-        responseContent.set("sequenceDiagram\n    A->>B: 요청");
-
-        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: 요청");
+        var parsed = new ObjectMapper().readTree(lastBody.get());
+        assertThat(parsed.get("requirement").asText()).isEqualTo("로그인 흐름을 그려줘");
+        assertThat(parsed.fieldNames()).toIterable().containsExactly("requirement");
     }
 
     @Test
-    void refineCarriesTheCurrentDiagramAndTheInstruction() {
-        responseContent.set("sequenceDiagram\n    A->>B: hi\n    B->>C: audit");
+    void postsTheCurrentCodeAndInstructionToRefine() throws Exception {
+        mermaidCode.set("sequenceDiagram\n    A->>B: hi\n    B->>C: audit");
 
         String result = service.refine("sequenceDiagram\n    A->>B: hi", "감사 로그 추가");
 
-        assertThat(lastBody.get())
-                .contains("A->>B: hi")
-                .contains("감사 로그 추가");
+        assertThat(lastPath.get()).isEqualTo("/refine");
+        var parsed = new ObjectMapper().readTree(lastBody.get());
+        assertThat(parsed.get("mermaidCode").asText()).isEqualTo("sequenceDiagram\n    A->>B: hi");
+        assertThat(parsed.get("instruction").asText()).isEqualTo("감사 로그 추가");
         assertThat(result).contains("audit");
     }
 
     @Test
-    void unwrapsAFencedResponse() {
-        responseContent.set("설명입니다.\n\n```mermaid\nsequenceDiagram\n    A->>B: hi\n```\n");
+    void returnsTheMermaidCodeFromTheResponse() {
+        mermaidCode.set("sequenceDiagram\n    사용자->>API: 요청");
 
-        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    A->>B: hi");
+        assertThat(service.generate("x")).isEqualTo("sequenceDiagram\n    사용자->>API: 요청");
     }
 
     /**
-     * A 400 carries the reason in its body ("model does not exist", "maximum
-     * context length is N tokens", ...). That text has to reach the caller,
-     * otherwise a rejected request is indistinguishable from any other failure.
+     * The AI server puts the reason in `detail` - including whatever the
+     * in-house LLM said about a 400. That text has to reach the caller,
+     * otherwise a rejected request looks like any other failure.
      */
     @Test
-    void surfacesTheServersOwnExplanationForA400() {
-        errorStatus.set(new int[] { 400 });
-        errorBody.set("{\"object\":\"error\",\"message\":\"This model's maximum context "
-                + "length is 2048 tokens, however you requested 2600 tokens\",\"type\":"
-                + "\"invalid_request_error\"}");
+    void surfacesTheDetailFromTheAiServer() {
+        errorStatus.set(502);
+        errorBody.set("{\"detail\":\"사내 LLM 이 400 를 반환했습니다: "
+                + "{\\\"message\\\":\\\"The model `gpt-4` does not exist\\\"}\"}");
 
         assertThatThrownBy(() -> service.generate("로그인 흐름"))
                 .isInstanceOf(AiServiceException.class)
-                .hasMessageContaining("400")
-                .hasMessageContaining("maximum context length is 2048 tokens");
+                .hasMessageContaining("The model `gpt-4` does not exist");
     }
 
     @Test
-    void failsWhenTheModelAnswersWithoutADiagram() {
-        responseContent.set("죄송하지만 도와드릴 수 없습니다.");
+    void reportsAnUnreachableAiServerWithTheCommandToStartIt() {
+        AiProperties down = new AiProperties();
+        down.setBaseUrl("http://127.0.0.1:1");
+        MermaidAiService offline = new MermaidAiService(
+                new RestClientConfig().aiRestClient(down), down);
 
-        assertThatThrownBy(() -> service.generate("x"))
+        assertThatThrownBy(() -> offline.generate("x"))
                 .isInstanceOf(AiServiceException.class)
-                .hasMessageContaining("Mermaid");
+                .hasMessageContaining("run-ai.sh");
     }
 
     @Test
-    void failsFastWhenTheEndpointIsNotConfigured() {
+    void failsFastWhenTheAiServerAddressIsNotSet() {
         AiProperties empty = new AiProperties();
         MermaidAiService unconfigured = new MermaidAiService(
-                new RestClientConfig().aiRestClient(empty), empty, new ObjectMapper());
+                new RestClientConfig().aiRestClient(empty), empty);
 
         assertThatThrownBy(() -> unconfigured.generate("x"))
                 .isInstanceOf(AiServiceException.class)
@@ -218,10 +158,19 @@ class MermaidAiServiceTest {
     }
 
     @Test
+    void healthPassesThroughTheAiServersReport() {
+        var health = service.health();
+
+        assertThat(health).isNotNull();
+        assertThat(health.path("llmApiConfigured").asBoolean()).isTrue();
+        assertThat(health.path("llmApiModel").asText()).isEqualTo("gpt-4");
+    }
+
+    @Test
     void trailingSlashesInTheBaseUrlAreTolerated() {
         AiProperties properties = new AiProperties();
-        properties.setBaseUrl("http://host:6100/v1///");
+        properties.setBaseUrl("http://host:5002///");
 
-        assertThat(properties.normalizedBaseUrl()).isEqualTo("http://host:6100/v1");
+        assertThat(properties.normalizedBaseUrl()).isEqualTo("http://host:5002");
     }
 }

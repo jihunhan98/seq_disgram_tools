@@ -52,13 +52,11 @@ app:
     # How long a login token stays valid.
     session-hours: 12
   ai:
-    base-url: ${AI_BASE_URL:}
-    api-key: ${AI_API_KEY:EMPTY}
-    model: ${AI_MODEL:gpt-4}
-    # POST {base-url}/completions 로 model, prompt, max_tokens 만 보냅니다.
-    # 다이어그램이 중간에 잘리면 올리고, 컨텍스트 길이 초과로 400 이 나면 내리세요.
-    max-tokens: 500
-    timeout-seconds: 120
+    # AI 서버(ai-model, FastAPI). ./run-ai.sh 로 띄운다.
+    # 사내 LLM API 주소·모델명은 여기가 아니라 ai-model/.env 에 있다.
+    base-url: ${AI_BASE_URL:http://localhost:5002}
+    # 생성에 시간이 걸리므로 넉넉히 잡는다.
+    timeout-seconds: 150
 
 logging:
   level:

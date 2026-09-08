@@ -6,13 +6,22 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 ```
 ┌──────────────────────────┐        ┌───────────────────────────┐        ┌──────────────────┐
 │  Frontend (정적 파일)     │  HTTP  │  Backend (Spring Boot 3)  │  JDBC  │   Oracle DB      │
-│  http://localhost:5001   │ ─────▶ │  http://localhost:5000    │ ─────▶ │   SEQ_DIAGRAM    │
-│  HTML + CSS + JS         │        │  JDK 21                   │        └──────────────────┘
-│  mermaid (vendored)      │        └───────────┬───────────────┘
-└──────────────────────────┘                    │ HTTP (OpenAI 호환)
+│  http://localhost:5001   │ ─────▶ │  http://localhost:5000    │ ─────▶ │  MEMBER          │
+│  HTML + CSS + JS         │        │  JDK 21                   │        │  SEQ_DIAGRAM     │
+│  mermaid (vendored)      │        └───────────┬───────────────┘        └──────────────────┘
+└──────────────────────────┘                    │ HTTP
                                                 ▼
-                                     사내 AI API (Playground)
+                                    ┌───────────────────────────┐
+                                    │  AI 서버 (FastAPI)         │
+                                    │  http://localhost:5002    │
+                                    └───────────┬───────────────┘
+                                                │ HTTP (OpenAI 호환 Chat Completions)
+                                                ▼
+                                     사내 LLM API (Playground)
 ```
+
+사내 LLM API 호출은 **파이썬(FastAPI)에서** 한다. Spring 은 그 서버에 다이어그램을
+요청할 뿐이다. 자세한 내용은 [`ai-model/README.md`](ai-model/README.md) 참고.
 
 ## 화면 흐름
 
@@ -53,8 +62,9 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 |---|---|
 | 백엔드 | Spring Boot 3.5 / **JDK 21** / Spring JDBC / Oracle JDBC (ojdbc11) / 포트 **5000** |
 | 프론트엔드 | 빌드 도구 없는 순수 HTML·CSS·JavaScript / 포트 **5001** |
+| AI 서버 | FastAPI + uvicorn (파이썬) / 포트 **5002** |
 | 다이어그램 렌더링 | mermaid v11 (`frontend/vendor/mermaid.min.js`에 포함 — 인터넷 없이 동작) |
-| AI | 사내 Playground API (OpenAI **`/v1/completions`** 호환), 모델 `gpt-4` |
+| 사내 LLM | Playground API (OpenAI **`/v1/chat/completions`** 호환), 모델 `gpt-4` |
 
 ## 디렉터리 구조
 
@@ -71,6 +81,11 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 │       └── resources/
 │           ├── application.yml           비밀정보 없음 (커밋 대상)
 │           └── db/oracle-schema.sql      Oracle DDL
+├── ai-model/                    AI 서버 (FastAPI) — 사내 LLM 호출은 여기서만 한다
+│   ├── main.py                  /generate, /refine, /health
+│   ├── mermaid.py               LLM 응답에서 Mermaid 코드만 추출
+│   ├── requirements.txt
+│   └── .env.example             ← 복사해서 사내 LLM 주소를 채우는 템플릿
 ├── frontend/                    빌드 없이 그대로 서비스되는 정적 파일
 │   ├── index.html
 │   ├── css/styles.css
@@ -79,17 +94,19 @@ Design Review나 프로젝트 관리 과정에서 필요한 시퀀스 다이어�
 │   └── server/StaticServer.java JDK만으로 동작하는 정적 파일 서버
 ├── config/
 │   └── application-local.yml.example    ← 복사해서 실제 값을 채우는 템플릿
+├── run-ai.sh
 ├── run-backend.sh
 └── run-frontend.sh
 ```
 
 ## 준비 (최초 1회)
 
-DB 접속 정보와 사내 AI 엔드포인트는 **저장소에 올리지 않습니다.**
-`.gitignore`가 `config/application-local.yml`을 제외하고 있으니, 템플릿을 복사해 실제 값을 채워 넣으세요.
+DB 접속 정보와 사내 LLM 엔드포인트는 **저장소에 올리지 않습니다.**
+둘 다 `.gitignore` 로 제외되어 있으니, 템플릿을 복사해 실제 값을 채워 넣으세요.
 
 ```bash
-cp config/application-local.yml.example config/application-local.yml
+cp config/application-local.yml.example config/application-local.yml   # DB
+cp ai-model/.env.example              ai-model/.env                    # 사내 LLM
 ```
 
 `config/application-local.yml`:
@@ -101,24 +118,33 @@ spring:
     username: <USERNAME>
     password: <PASSWORD>
 
-app:
-  ai:
-    base-url: http://<HOST>:<PORT>/v1              # 사내 Playground API, /v1 까지 포함
-    api-key: EMPTY
-    model: gpt-4
-    max-tokens: 2000                               # 다이어그램이 잘리면 늘리세요
 ```
 
-파일 대신 환경변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`)로 넘겨도 됩니다.
-`base-url` 뒤에 `/completions` 가 붙어 호출되므로 `/v1` 까지만 적어야 합니다.
+`ai-model/.env`:
 
-> 이 파일이 실수로 커밋되지 않는지는 `git check-ignore -v config/application-local.yml`로 확인할 수 있습니다.
+```bash
+LLM_API_BASE=http://<HOST>:<PORT>/v1   # 사내 LLM API, /v1 까지 포함
+LLM_API_MODEL=gpt-4                    # 서버가 서빙하는 모델명
+LLM_API_KEY=EMPTY
+LLM_API_TIMEOUT=120
+```
+
+파일 대신 DB 정보는 환경변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`)로 넘겨도 됩니다.
+`LLM_API_BASE` 뒤에 `/chat/completions` 가 붙어 호출되므로 `/v1` 까지만 적어야 합니다.
+
+> 두 파일이 실수로 커밋되지 않는지는 아래로 확인할 수 있습니다.
+> `git check-ignore -v config/application-local.yml ai-model/.env`
+>
+> **예전에 쓰던 `config/application-local.yml` 에 `app.ai` 항목이 있다면 지우세요.**
+> 사내 LLM 주소가 거기 남아 있으면 백엔드가 AI 서버 대신 LLM 으로 직접 요청해서 실패합니다.
+> 이제 이 파일에는 DB 정보만 둡니다.
 
 ## 실행
 
-터미널 두 개에서 각각 실행합니다.
+터미널 세 개에서 각각 실행합니다.
 
 ```bash
+./run-ai.sh          # http://localhost:5002  (FastAPI · 최초 실행 시 venv 자동 생성)
 ./run-backend.sh     # http://localhost:5000  (Spring Boot)
 ./run-frontend.sh    # http://localhost:5001  (정적 파일)
 ```
@@ -172,7 +198,7 @@ Mermaid 코드는 `CLOB`이라 길이 제한이 사실상 없습니다. 수정 �
 | `POST` | `/api/diagrams` | 신규 저장 |
 | `PUT` | `/api/diagrams/{id}` | 덮어쓰기 저장 |
 | `DELETE` | `/api/diagrams/{id}` | 삭제 |
-| `POST` | `/api/ai/generate` | `{"requirement": "..."}` → `{"mermaidCode": "..."}` |
+| `POST` | `/api/ai/generate` | `{"requirement": "..."}` → `{"mermaidCode": "..."}` (AI 서버로 위임) |
 | `POST` | `/api/ai/refine` | `{"mermaidCode": "...", "instruction": "..."}` → `{"mermaidCode": "..."}` |
 
 오류는 `{"status", "error", "message", "timestamp"}` 형태로 내려옵니다.
@@ -200,30 +226,18 @@ cd backend && mvn test
 
 Oracle 호환 모드의 H2로 실제 운영 SQL을 그대로 검증합니다. 회원 간 격리(다른 회원의 다이어그램을
 조회·수정·삭제할 수 없음), 비밀번호 해시 저장, CORS 사전 요청(preflight) 통과, 그리고 AI 클라이언트가
-`/completions` 로 `prompt` + `max_tokens` 를 `Content-Length` 와 함께 보내고 `choices[0].text` 를
-읽어오는지까지 실제 소켓으로 확인합니다.
+AI 서버에 올바른 경로·본문으로 요청하고 실패 사유(`detail`)를 그대로 올려주는지를 실제 소켓으로 확인합니다.
 
 ## 참고 사항
 
-- **AI 호출 방식** — OpenAI의 **completions(Complete)** 방식을 사용합니다. 즉 `POST {base-url}/completions` 로
-  `{"model": "...", "prompt": "...", "max_tokens": ...}` **이 세 개만** 보내고 응답은 `choices[0].text` 에서 읽습니다.
-  python SDK 로 치면 아래와 같은 호출입니다.
-
-  ```python
-  client.completions.create(model="gpt-4", prompt="...", max_tokens=2000)
-  ```
-
-  chat 방식(`/chat/completions`)은 답이 `choices[0].message.content` 에 담기므로, 그쪽만 읽으면
-  본문이 비어 있는 것으로 보입니다. 서버가 chat 형태로 응답하는 경우에도 동작하도록 두 위치를 모두 확인합니다.
-  `app.ai.max-tokens`(기본 500)는 다이어그램이 잘리면 올리고, 컨텍스트 길이 초과로 400 이 나면 내리세요.
-- **AI 호출이 실패하면** 서버가 응답 본문에 이유를 적어 보냅니다. 그 내용을 그대로 화면 토스트와
-  백엔드 로그(`ERROR ... AI API 400 ...`)에 보여주므로, 모델명이 틀렸는지 컨텍스트가 넘쳤는지 바로 확인할 수 있습니다.
-  로그에는 실제로 보낸 요청 본문도 함께 남습니다.
-- **AI 응답 정리** — 모델이 설명 문장이나 ```` ```mermaid ```` 코드 펜스를 붙여서 답해도 백엔드가 Mermaid 코드만 추출해 전달합니다.
-  다이어그램이 아닌 응답이면 `502`로 처리합니다.
-- **AI 요청 본문** — `Map` 을 그대로 `RestClient` 에 넘겨 Jackson 이 JSON 으로 직렬화합니다.
-  `BufferingClientHttpRequestFactory` 로 감싸 두어 chunked 가 아니라 `Content-Length` 로 나가며,
-  이는 openai 파이썬 SDK 가 보내는 형태와 동일합니다.
+- **AI 호출 방식** — 사내 LLM 호출은 AI 서버(파이썬)가 담당합니다. `POST {LLM_API_BASE}/chat/completions` 로
+  OpenAI Chat Completions 규격(`messages` 배열)을 보내고 `choices[0].message.content` 에서 읽습니다.
+  요구사항 검토 서버(`semes-superrookie/ai-model`)와 같은 방식입니다.
+- **AI 응답 정리** — 모델이 설명 문장이나 ```` ```mermaid ```` 코드 펜스를 붙여서 답해도 `ai-model/mermaid.py` 가
+  Mermaid 코드만 추출합니다. 다이어그램이 아닌 응답이면 502 로 처리합니다.
+- **Spring → FastAPI** — `SimpleClientHttpRequestFactory` 를 씁니다. `RestClient` 의 기본 요청 팩토리
+  (JDK HttpClient)는 HTTP/1.1 요청에도 `Upgrade: h2c` 헤더를 붙이는데, uvicorn 이 이걸 웹소켓
+  업그레이드로 오인해 422 를 반환하기 때문입니다.
 - **CORS** — 프론트엔드(5001)와 백엔드(5000)의 출처가 다르므로 `app.cors.allowed-origins`에 등록된 출처만 허용합니다.
   다른 호스트에서 접속한다면 이 값에 추가하세요.
 - **세션** — 로그인 토큰은 브라우저 `localStorage`에 저장하고 `Authorization` 헤더로 보냅니다.

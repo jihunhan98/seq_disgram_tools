@@ -195,10 +195,27 @@ class DiagramApiTest {
     }
 
     @Test
-    void healthStaysPublicSoTheLoginScreenCanProbeIt() throws Exception {
+    void healthStaysPublicAndReportsWhatTheAiServerSays() throws Exception {
+        given(aiService.health()).willReturn(new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("{\"llmApiConfigured\":true,\"llmApiModel\":\"gpt-4\"}"));
+
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.aiConfigured").value(true));
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.aiConfigured").value(true))
+                .andExpect(jsonPath("$.aiModel").value("gpt-4"));
+    }
+
+    /** AI 서버가 안 떠 있으면 화면이 그 사실과 실행 방법을 보여줘야 한다. */
+    @Test
+    void healthSaysHowToStartTheAiServerWhenItIsDown() throws Exception {
+        given(aiService.health()).willReturn(null);
+
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiConfigured").value(false))
+                .andExpect(jsonPath("$.aiMessage").value(
+                        org.hamcrest.Matchers.containsString("run-ai.sh")));
     }
 
     // ------------------------------------------------------- 회원별 다이어그램 --

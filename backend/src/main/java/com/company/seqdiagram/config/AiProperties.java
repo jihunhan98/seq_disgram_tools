@@ -3,24 +3,24 @@ package com.company.seqdiagram.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Settings for the in-house OpenAI-compatible Playground API.
- * The real values live in the git-ignored config/application-local.yml.
+ * AI 서버(ai-model, FastAPI) 접속 설정.
+ *
+ * 사내 LLM API 주소·모델명·키는 여기 없다 — 그쪽은 AI 서버가 직접 들고 있고,
+ * 커밋되지 않는 ai-model/.env 에서 읽는다.
  */
 @ConfigurationProperties(prefix = "app.ai")
 public class AiProperties {
 
-    /** Base URL ending in /v1, e.g. http://host:port/v1 */
+    /** ai-model 서버 주소. 예) http://localhost:5002 */
     private String baseUrl = "";
-    private String apiKey = "EMPTY";
-    private String model = "gpt-4";
-    private int maxTokens = 500;
-    private int timeoutSeconds = 120;
+    /** 생성에 시간이 걸리므로 넉넉히 잡는다. */
+    private int timeoutSeconds = 150;
 
     public boolean isConfigured() {
         return baseUrl != null && !baseUrl.isBlank();
     }
 
-    /** Base URL without a trailing slash, so paths can be appended directly. */
+    /** 뒤 슬래시를 떼어 경로를 그대로 이어붙일 수 있게 한다. */
     public String normalizedBaseUrl() {
         String url = baseUrl == null ? "" : baseUrl.trim();
         while (url.endsWith("/")) {
@@ -35,30 +35,6 @@ public class AiProperties {
 
     public void setBaseUrl(String baseUrl) {
         this.baseUrl = baseUrl;
-    }
-
-    public String getApiKey() {
-        return apiKey;
-    }
-
-    public void setApiKey(String apiKey) {
-        this.apiKey = apiKey;
-    }
-
-    public String getModel() {
-        return model;
-    }
-
-    public void setModel(String model) {
-        this.model = model;
-    }
-
-    public int getMaxTokens() {
-        return maxTokens;
-    }
-
-    public void setMaxTokens(int maxTokens) {
-        this.maxTokens = maxTokens;
     }
 
     public int getTimeoutSeconds() {

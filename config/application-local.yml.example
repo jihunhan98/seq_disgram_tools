@@ -4,7 +4,7 @@
 #     cp config/application-local.yml.example config/application-local.yml
 #
 # config/application-local.yml is listed in .gitignore and must never be
-# committed: it holds the Oracle credentials and the in-house AI endpoint.
+# committed: it holds the Oracle credentials.
 # ---------------------------------------------------------------------------
 spring:
   datasource:
@@ -14,11 +14,5 @@ spring:
     username: CHANGE_ME
     password: CHANGE_ME
 
-app:
-  ai:
-    # OpenAI-compatible base URL of the in-house Playground API (must end in /v1)
-    base-url: http://HOST:PORT/v1
-    api-key: EMPTY
-    model: gpt-4
-    # 다이어그램이 잘리면 늘리고, 컨텍스트 길이 초과로 400 이 나면 줄이세요.
-    max-tokens: 500
+# 사내 LLM API 주소·모델명은 여기가 아니라 ai-model/.env 에 둔다.
+#   cp ai-model/.env.example ai-model/.env

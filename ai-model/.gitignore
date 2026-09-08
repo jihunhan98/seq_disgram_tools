@@ -1,0 +1,7 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# 사내 LLM API 주소 등 사내망 정보 — 커밋하지 않는다. (.env.example 참고)
+.env
